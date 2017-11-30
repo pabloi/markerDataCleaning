@@ -15,7 +15,7 @@ function [R,t,X1proy] = getRotationAndTranslation(X1,X2)
 
 
 
-%Alt: here R will truly be rotation+reflection matrix
+%Alt: here R will truly be rotation+reflection matrix (no shrink)
 %Algorithm taken from: http://nghiaho.com/?page_id=671
 %Which seems to take from Least-Squares Fitting of Two 3-D Point Sets by
 %Arun et al. 1987

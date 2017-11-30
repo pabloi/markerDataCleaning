@@ -38,11 +38,10 @@ classdef markerModel
         %gradient can be P x 3M if it is the same for all frames, as is the case in linear models
         i = indicatrix() %For each model, returns WHICH markers are involved with each stat: MxP binary, sparse
         mleData=invert(ss) %retunns global (but possibly non-unique) MLE estimator of
-        function newDataFrame=anchor(dataFrame,anchorFrame)
+        function [newDataFrame,R,t]=anchor(dataFrame,anchorFrame)
            %Does a 3D rotation/translation of dataFrame to best match the anchorFrame
-           
            %For a single frame:
-           newDataFrame=[]; %TODO
+           [R,t,newDataFrame]=getTranslationAndRotation(dataFrame,anchorFrame); %TODO
         end
     end
 end
