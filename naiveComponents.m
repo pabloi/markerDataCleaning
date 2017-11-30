@@ -18,7 +18,7 @@ classdef naiveComponents < markerModel
         end
     end
     methods(Static)
-        function ss = summaryStats(data)
+        function [ss,g] = summaryStats(data)
            ss=computeDifferenceMatrix(data); %Mx3xMxN
            [M,~,N]=size(data);
            %TODO

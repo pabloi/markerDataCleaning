@@ -18,12 +18,15 @@ classdef naiveDistances < markerModel
         end
     end
     methods(Static)
-        function ss = summaryStats(data)
+        function [ss,g] = summaryStats(data)
            ss=computeDistanceMatrix(data);
            [M,~,N]=size(data);
            ss=reshape(ss,M^2,N);
            ind=triu(ones(M),1);
            ss=ss(ind,:); %Keeping only upper half: PxN, with P=M*(M-1)/2
+           if nargout>2
+              g=[]; %TODO 
+           end
         end
         function i = indicatrix(M) %MxP
             ind=triu(ones(M),1);
