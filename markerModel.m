@@ -4,21 +4,13 @@ classdef markerModel
         markerLabels %Mx1 cell array
         trainingData %Mx3xN
     end
-    properties(Dependent)
-        statsMean %Px1
-        statsCov %PxP
-        statsStd %Px1
-    end
     
     methods
         function mm=markerModel()
             mm.markerLabels={};
             mm.trainingData=[];
         end
-        function s = get.statsStd(this)
-            c = this.statsCov;
-            s=diag(c);
-        end
+        
         logL = loglikelihood(this,data) %Returns PxN
         
         function markerScores = naiveScoreMarkers(this,data)
@@ -34,15 +26,28 @@ classdef markerModel
     
     methods(Static)
         model = learn(data)
+        
         [ss,g] = summaryStats(data) %Returns PxN summary stats, and P x 3M x N gradient 
         %gradient can be P x 3M if it is the same for all frames, as is the case in linear models
+        
         i = indicatrix() %For each model, returns WHICH markers are involved with each stat: MxP binary, sparse
-        mleData=invert(ss) %retunns global (but possibly non-unique) MLE estimator of
-        function [newDataFrame,R,t]=anchor(dataFrame,anchorFrame)
-           %Does a 3D rotation/translation of dataFrame to best match the anchorFrame
-           %For a single frame:
-           [R,t,newDataFrame]=getTranslationAndRotation(dataFrame,anchorFrame); %TODO
+        
+        mleData=invert(ss) %returns global (but possibly non-unique) MLE estimator of
+        
+        [dataFrame,params]=invertAndAnchor(ss,anchorFrame,anchorWeights) 
+        %This is offered on top of anchor alone because for some models it 
+        %may be optimal to do both things together rather than in stages
+        
+        [dataFrame,params]=anchor(ss,anchorFrame,anchorWeights)
+        
+        function lL=normalLogL(values,means,stds)
+            %values is PxN, means and stds are Px1
+            %Returns PxN likelihood of value under each normal
+            d=.5*((values-means)./stds).^2;
+            lL=-d -log(stds) -.9189;
+            %.9189 = log(2*pi)/2
         end
+        
     end
 end
 
