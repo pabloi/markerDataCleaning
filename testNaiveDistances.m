@@ -41,20 +41,38 @@ d=permute(data,[2,3,1]);
 mm = naiveDistances.learn(d,labels);
 
 %% Assess likelihood of individual frames
-ll=mm.naiveScoreMarkers(d);
-ll=mm.indScoreMarkers(d);
-ll=mm.medianScoreMarkers(d);
-ll=mm.rankedScoreMarkers(d);
+inds=[16500:17000];
+dd=d(:,:,inds);
+ll1=mm.naiveScoreMarkers(dd);
+ll2=mm.indScoreMarkers(dd);
+ll3=mm.medianScoreMarkers(dd);
+ll4=mm.rankedScoreMarkers(dd);
+ll=ll1;
 ll(isnan(ll))=5;
+
+%Compare scoring:
+figure()
+bad=[311:316];% + 100;
+mbad=any(ll(:,bad)<-10,2);%bad markers on those frames
+hold on
+for i=1:length(mbad)
+    if mbad(i)
+        p1=plot(inds,ll1(i,:)');
+        plot(inds,ll2(i,:)','-.','Color',p1.Color)
+        plot(inds,ll3(i,:)','.-','Color',p1.Color)
+        plot(inds,ll4(i,:)','--','Color',p1.Color)
+    end
+end
+legend('Naive','Ind','Median','ranked')
 
 figure;
 subplot(1,2,1)
 hold on
-plot(ll')
+plot(inds,ll')
 legend(mm.markerLabels)
-axis([16800 16850 -100 0])
+axis([300 350 -100 0])
 bad=any(ll<-10,1); %bad frames
-bad=[16811:16816] + 100;
+bad=[311:316];% + 100;
 mbad=any(ll(:,bad)<-10,2);%bad markers on those frames
 subplot(1,2,2)
 hold on
