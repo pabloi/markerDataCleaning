@@ -39,7 +39,7 @@ set(gca,'YTick',[0 1],'YTickLabel',{'Present','Missing'})
 %% Learn a model
 d=permute(data,[2,3,1]);
 mm = naiveDistances.learn(d,labels);
-
+L=mm.indScoreMarkersv2(d);
 %% Assess likelihood of individual frames
 inds=[16500:17000];
 dd=d(:,:,inds);
@@ -47,10 +47,15 @@ ll1=mm.naiveScoreMarkers(dd);
 ll2=mm.indScoreMarkers(dd);
 ll3=mm.medianScoreMarkers(dd);
 ll4=mm.rankedScoreMarkers(dd);
+ll5=mm.indScoreMarkersv2(dd);
 ll=ll1;
 ll(isnan(ll))=5;
+oo1=mm.outlierDetect(dd);
+oo2=mm.outlierDetectv2(dd);
+oo3=ll5<2*prctile(ll5',3)';
 
-%Compare scoring:
+
+%% Compare scoring:
 figure()
 bad=[311:316];% + 100;
 mbad=any(ll(:,bad)<-10,2);%bad markers on those frames
@@ -61,6 +66,7 @@ for i=1:length(mbad)
         plot(inds,ll2(i,:)','-.','Color',p1.Color)
         plot(inds,ll3(i,:)','.-','Color',p1.Color)
         plot(inds,ll4(i,:)','--','Color',p1.Color)
+        plot(inds,ll5(i,:)','x-','Color',p1.Color)
     end
 end
 legend('Naive','Ind','Median','ranked')
@@ -68,12 +74,24 @@ legend('Naive','Ind','Median','ranked')
 figure;
 subplot(1,2,1)
 hold on
-plot(inds,ll')
-legend(mm.markerLabels)
-axis([300 350 -100 0])
+p1=plot(inds,ll');
+%axis([300 350 -100 0])
 bad=any(ll<-10,1); %bad frames
 bad=[311:316];% + 100;
 mbad=any(ll(:,bad)<-10,2);%bad markers on those frames
+ooo1=nan(size(oo1));
+ooo2=nan(size(oo2));
+ooo3=nan(size(oo3));
+ooo1(oo1)=1;
+ooo2(oo2~=0)=1;
+ooo3(oo3~=0)=2;
+set(gca,'ColorOrderIndex',1)
+plot(inds,ooo1,'o')
+set(gca,'ColorOrderIndex',1)
+plot(inds,ooo2,'x')
+set(gca,'ColorOrderIndex',1)
+plot(inds,ooo3,'o')
+legend(p1,mm.markerLabels)
 subplot(1,2,2)
 hold on
 DD=nanmean(d(:,:,bad),3);

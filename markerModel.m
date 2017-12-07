@@ -37,6 +37,7 @@ classdef markerModel
             outlierMarkers=i'\outStats >.1; %This is the correct form, though i*outstats returns comparable results and is sparse
             
         end
+        
         function outlierMarkers = outlierDetectv2(this,data)
             i=indicatrix(this); %MxP
             %outStats=summaryStats(this,data)<this.statPrctiles(:,2) | s>this.statPrctiles(:,100); %Finding stats in the 1% tails (both) 
@@ -52,6 +53,7 @@ classdef markerModel
             end
 
         end
+        
         function markerScores = naiveScoreMarkers(this,data)
             nn=isnan(data);
            L=loglikelihood(this,data); %PxN
@@ -67,11 +69,34 @@ classdef markerModel
            L(isnan(L))=0; %Is this the value to use? Should we use the mean from training instead?
            i=indicatrix(this); %MxP
            markerScores= i' \ L; %Least-squares sense, doesn't really work
-           %TODO: Look at outlierDetectv2 and implement something similar!
-           %Idea: also minimize number of 'outliers', and define outlier as
-           %any marker whose loglikelihood is below some threshold.
-           %Constrain such that i'*markerScores <= L
-           markerScores(squeeze(any(nn,2)))=NaN;
+        end
+        
+        function markerScores = indScoreMarkersv2(this,data)
+           nn=isnan(data);
+           L=loglikelihood(this,data); %PxN
+           L(isnan(L))=0; %Is this the value to use? Should we use the mean from training instead?
+           i=indicatrix(this); %MxP
+           markerMeans= (i * L)./sum(i,2); 
+           [M,P]=size(i);
+           %Solve: 
+           uno=ones(M,1);
+           cero=zeros(M,1);
+           f=[cero;uno];
+           lb=[-Inf*uno; cero];
+           ub=[Inf*uno;uno];
+           K=max(abs(L(:)));
+           markerScores=nan(M,size(L,2));
+           opts=optimoptions('intlinprog','Display','off');
+           for j=1:size(L,2)
+           %Ineq 1: L >= i'*p;
+           A1=[i' zeros(P,M)]; b1=L(:,j);
+           %Ineq 2: y>(mm-p)/K -> -p/K-y < -mm/K
+           A2=[-eye(M)/K -eye(M)]; b2=-markerMeans(:,j)/K;
+           %Ineq 3: 1-y >= -(mm-p)/K -> 1+mm/K>= -y+p/K
+           A3=[eye(M)/K -eye(M)]; b3=uno+markerMeans(:,j)/K;
+           py=intlinprog(f,[M+1:2*M],[A1;A2;A3],[b1;b2;b3],[],[],lb,ub,opts);
+           markerScores(:,j)=py(1:M);
+           end
         end
         
         function markerScores = medianScoreMarkers(this,data)
