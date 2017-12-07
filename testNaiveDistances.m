@@ -52,7 +52,7 @@ ll=ll1;
 ll(isnan(ll))=5;
 oo1=mm.outlierDetect(dd);
 oo2=mm.outlierDetectv2(dd);
-oo3=ll5<2*prctile(ll5',3)';
+oo3=ll5<2*prctile(L',3)';
 
 
 %% Compare scoring:

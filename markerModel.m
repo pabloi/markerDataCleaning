@@ -203,7 +203,8 @@ classdef markerModel
             ub=[uno; Inf*uno;cero];
             %Solve
             f=[uno;cero;cero];
-            xy=intlinprog(f,1:3*M,A,b,Aeq,beq,lb,ub); %Solving for integer (binary) x
+            opts=optimoptions('intlinprog','Display','off');
+            xy=intlinprog(f,1:3*M,A,b,Aeq,beq,lb,ub,opts); %Solving for integer (binary) x
             outlierMarkers=xy(1:M);
             y=xy(M+1:2*M);
             z=xy(2*M+1:end);
