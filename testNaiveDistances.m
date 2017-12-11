@@ -39,19 +39,20 @@ set(gca,'YTick',[0 1],'YTickLabel',{'Present','Missing'})
 %% Learn a model
 d=permute(data,[2,3,1]);
 mm = naiveDistances.learn(d,labels);
-L=mm.indScoreMarkersv2(d);
+L=mm.scoreMarkers(d);
 %% Assess likelihood of individual frames
 inds=[16500:17000];
 dd=d(:,:,inds);
-ll1=mm.naiveScoreMarkers(dd);
-ll2=mm.indScoreMarkers(dd);
-ll3=mm.medianScoreMarkers(dd);
-ll4=mm.rankedScoreMarkers(dd);
-ll5=mm.indScoreMarkersv2(dd);
+ll1=mm.scoreMarkersNaive(dd);
+ll2=mm.scoreMarkersFast(dd);
+ll3=mm.scoreMarkersMedian(dd);
+ll4=mm.scoreMarkersRanked(dd);
+ll5=mm.scoreMarkers(dd);
 ll=ll1;
 ll(isnan(ll))=5;
-oo1=mm.outlierDetect(dd);
-oo2=mm.outlierDetectv2(dd);
+%%
+oo1=mm.outlierDetectFast(dd);
+oo2=mm.outlierDetect(dd);
 oo3=ll5<2*prctile(L',3)';
 
 

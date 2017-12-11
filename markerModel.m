@@ -30,7 +30,7 @@ classdef markerModel
         logL = loglikelihood(this,data) %Returns PxN
         i = indicatrix(this)
         
-        function outlierMarkers = outlierDetect(this,data)
+        function outlierMarkers = outlierDetectFast(this,data)
             i=indicatrix(this); %MxP
             %outStats=summaryStats(this,data)<this.statPrctiles(:,2) | s>this.statPrctiles(:,100); %Finding stats in the 1% tails (both) 
             outStats=this.loglikelihood(data) < this.trainingLogLPrctiles(:,2); %Finding likelihood in 1st percentile
@@ -38,7 +38,7 @@ classdef markerModel
             
         end
         
-        function outlierMarkers = outlierDetectv2(this,data)
+        function outlierMarkers = outlierDetect(this,data)
             i=indicatrix(this); %MxP
             %outStats=summaryStats(this,data)<this.statPrctiles(:,2) | s>this.statPrctiles(:,100); %Finding stats in the 1% tails (both) 
             outStats=this.loglikelihood(data) < this.trainingLogLPrctiles(:,2); %Finding likelihood in 1st percentile
@@ -54,8 +54,12 @@ classdef markerModel
 
         end
         
-        function markerScores = naiveScoreMarkers(this,data)
-            nn=isnan(data);
+        function outlierMarkers = outlierDetectThreshold(this,data)
+            ll5=mm.scoreMarkers(dd);
+        end
+        
+        function markerScores = scoreMarkersNaive(this,data)
+           nn=isnan(data);
            L=loglikelihood(this,data); %PxN
            i=indicatrix(this);
            L(isnan(L))=0; %Is this the value to use? Should we use the mean from training instead?
@@ -63,16 +67,14 @@ classdef markerModel
            markerScores(squeeze(any(nn,2)))=NaN;
         end
         
-        function markerScores = indScoreMarkers(this,data)
-           nn=isnan(data);
+        function markerScores = scoreMarkersFast(this,data)
            L=loglikelihood(this,data); %PxN
            L(isnan(L))=0; %Is this the value to use? Should we use the mean from training instead?
            i=indicatrix(this); %MxP
            markerScores= i' \ L; %Least-squares sense, doesn't really work
         end
         
-        function markerScores = indScoreMarkersv2(this,data)
-           nn=isnan(data);
+        function markerScores = scoreMarkers(this,data)
            L=loglikelihood(this,data); %PxN
            L(isnan(L))=0; %Is this the value to use? Should we use the mean from training instead?
            i=indicatrix(this); %MxP
@@ -99,7 +101,7 @@ classdef markerModel
            end
         end
         
-        function markerScores = medianScoreMarkers(this,data)
+        function markerScores = scoreMarkersMedian(this,data)
            nn=isnan(data);
            L=loglikelihood(this,data); %PxN
            L(isnan(L))=0; %Is this the value to use? Should we use the mean from training instead?
@@ -111,7 +113,7 @@ classdef markerModel
            markerScores(squeeze(any(nn,2)))=NaN;
         end
         
-        function markerScores = rankedScoreMarkers(this,data,N)
+        function markerScores = scoreMarkersRanked(this,data,N)
             if nargin<3
                 N=3; %Using third-worse score
             end
@@ -125,11 +127,6 @@ classdef markerModel
                markerScores(j,:)=aux(N,:);
            end
            markerScores(squeeze(any(nn,2)))=NaN;
-        end
-        
-        function frameScores = naiveScoreFrames(this,data) %1xN
-            markerScores = naiveScoreMarkers(this,data);
-            frameScores=nanmean(markerScores,1);
         end
     end
     
@@ -202,12 +199,68 @@ classdef markerModel
             lb=[cero;cero;-Inf*uno];
             ub=[uno; Inf*uno;cero];
             %Solve
-            f=[uno;cero;cero];
+            f=[uno;cero;cero]; %vector to solve is [x;y;z]
             opts=optimoptions('intlinprog','Display','off');
-            xy=intlinprog(f,1:3*M,A,b,Aeq,beq,lb,ub,opts); %Solving for integer (binary) x
-            outlierMarkers=xy(1:M);
-            y=xy(M+1:2*M);
-            z=xy(2*M+1:end);
+            xyz=intlinprog(f,1:M,A,b,Aeq,beq,lb,ub,opts); %Solving for integer (binary) x
+            outlierMarkers=xyz(1:M);
+            y=xyz(M+1:2*M);
+            z=xyz(2*M+1:end);
+        end
+        
+        function frameScores=marker2frameScoresNaive(markerScores)
+            frameScores=nanmean(markerScores,1);
+        end
+        
+        function [markerScores]=untangleLikelihoods(L,i) %Single frame: L is vector
+           %Solve: min 1'*y s.t. y=((p-m)<=0) and L=>i*p
+           %where m= markerMeans for that frame
+           markerMeans= (i * L)./sum(i,2); 
+           [M,P]=size(i);
+           uno=ones(M,1);
+           cero=zeros(M,1);
+           f=[cero;uno]; %Vector to solve is [p;y] 
+           %where p is the likelihood of each marker, 
+           %and y is an aux variable that indicates if each exceeds their
+           %mean stat likelihood ["outlier" indicator]
+           lb=[-Inf*uno; cero];
+           ub=[Inf*uno;uno];
+           K=max(abs(L(:)));
+           markerScores=nan(M,size(L,2));
+           opts=optimoptions('intlinprog','Display','off');
+           for j=1:size(L,2)
+               %Ineq 1: L >= i'*p;
+               A1=[i' zeros(P,M)]; b1=L(:,j);
+               %Ineq 2: y>(mm-p)/K -> -p/K-y < -mm/K
+               A2=[-eye(M)/K -eye(M)]; b2=-markerMeans(:,j)/K;
+               %Ineq 3: 1-y >= -(mm-p)/K -> 1+mm/K>= -y+p/K
+               A3=[eye(M)/K -eye(M)]; b3=uno+markerMeans(:,j)/K;
+               py=intlinprog(f,[M+1:2*M],[A1;A2;A3],[b1;b2;b3],[],[],lb,ub,opts);
+               markerScores(:,j)=py(1:M);
+           end 
+        end
+        function [markerScores]=untangleOutliers(L,i) %Single frame: L is vector
+           %Solve: min 1'*y s.t. y=((1'*y-m) <=0) and L<=i'*y
+           %where m = outlier stats for that marker:
+           m= (i * L); 
+           [M,P]=size(i);
+           uno=ones(M,1);
+           cero=zeros(M,1);
+           f=[uno]; %Vector to solve y 
+           lb=[cero];
+           ub=[uno];
+           K=P*max(abs(L(:))); %P could be subbed by (max(sum(i,2)))
+           markerScores=nan(M,size(L,2));
+           opts=optimoptions('intlinprog','Display','off');
+           for j=1:size(L,2)
+               %Ineq 1: L >= i'*p; L<=i'*y -> -L>=-i'*y
+               A1=[-i']; b1=-L(:,j);
+               %Ineq 2: y=(p-1'*y >=0) ->y=(1'*y<=p)
+               A2=[-ones(M)/K]; b2=-m(:,j)/K;
+               %Ineq 3:
+               A3=[ones(M)/K]; b3=uno+m(:,j)/K;
+               py=intlinprog(f,[1:M],[A1;A2;A3],[b1;b2;b3],[],[],lb,ub,opts);
+               markerScores(:,j)=py(1:M);
+           end 
         end
         
     end
