@@ -10,6 +10,7 @@ classdef markerModel
     end
     properties(Dependent)
         Nmarkers
+        statMedian
     end
     
     methods
@@ -26,9 +27,108 @@ classdef markerModel
         function M = get.Nmarkers(this)
             M=size(this.trainingData,1);
         end
+        function mu = get.statMedian(this)
+            mu=this.statPrctiles(:,51);
+        end
         
         logL = loglikelihood(this,data) %Returns PxN
         i = indicatrix(this)
+        
+        function s = getRobustStd(this,CI)
+           %Uses the central confidence interval CI to estimate the std of the distribution
+           %assuming the central part is normally distributed 
+           %CI has to be a number in [0.02,.98]
+           if nargin<2
+               CI=.95;
+           elseif CI>.98 || CI<0.02
+               error('CI has to be a number in [0.02,.98]')
+           end
+           lb=50-100*CI/2; %Here I am assuming central CI
+           ub=100*CI/2 +50;
+           %Get the lb percentile:
+           w=1-(lb-floor(lb));
+           pl=this.statPrctiles(:,floor(lb)+[0,1]+1)*[w;1-w];
+           %Get the ub percentile:
+           w=1-(ub-floor(ub));
+           pu=this.statPrctiles(:,floor(ub)+[0,1]+1)*[w;1-w];
+           
+           %Get how many sigmas correspond to each of the chosen
+           %percentiles in a normal distribution:
+           Nsigma=2*erfinv(CI)*sqrt(2); %For the classical 0.95 value, this is 2*1.96 sigma, asumming central CI again
+           s=(pu-pl)/Nsigma;
+        end
+        
+        function [fh]=seeModel(this)
+            
+            data=this.trainingData;
+                fh=figure; 
+                c=colormap;
+                c(1,:)=[1 1 1];
+                colormap(c)
+                subplot(3,2,1)
+                plot(this.statPrctiles',0:100)
+                title('Training stat cdfs')
+                subplot(3,2,[2,4,6])
+                m=nanmedian(this.trainingData,3);
+                plot3(m(:,1),m(:,2),m(:,3),'o','LineWidth',2,'MarkerSize',4)
+                view(3)
+                axis equal
+                hold on
+                text(m(:,1),m(:,2),m(:,3),this.markerLabels)
+
+                
+                subplot(3,4,5)
+                s=this.stat2Matrix(this.statStd);
+                [s,xl,yl]=this.stat2Matrix(this.getRobustStd(.95));
+                if strcmp(xl,'markerLabels')
+                    xl=this.markerLabels;
+                end
+                if strcmp(yl,'markerLabels')
+                    yl=this.markerLabels;
+                end
+                s(s==0)=-5;
+                imagesc(s)
+                colorbar
+                caxis([-5 100])
+                title('\sigma training (mm)')
+                axis equal
+                axis tight
+                set(gca,'XTickLabels',xl,'XTickLabelRotation',90,'XTick',1:size(data,1),'YTickLabels',yl,'YTick',1:size(data,1))
+                subplot(3,4,6)
+                m=this.stat2Matrix(this.statMedian);
+                m(m==0)=NaN;
+                imagesc(m)
+                colorbar
+                caxis([nanmin(m(:))-100 nanmax(m(:))])
+                title('\mu training (mm)')
+                axis equal
+                axis tight
+                set(gca,'XTickLabels',xl,'XTickLabelRotation',90,'XTick',1:size(data,1),'YTickLabels',yl,'YTick',1:size(data,1))
+                
+%                 %Reference data
+%                 [m,s,l]=naiveDistances.getRefData();
+%                 subplot(3,4,9)
+%                 s=triu(s);
+%                 s(s==0)=-5;
+%                 m=triu(m);
+%                 m(m==0)=-25;
+%                 imagesc(s)
+%                 colorbar
+%                 %colormap(c)
+%                 caxis([-5 100])
+%                 title('\sigma reference (mm)')
+%                 axis equal
+%                 axis tight
+%                 set(gca,'XTickLabels',l,'XTickLabelRotation',90,'XTick',1:size(s,1),'YTickLabels',l,'YTick',1:size(s,1))
+%                 subplot(3,4,10)
+%                 imagesc(m)
+%                 caxis([-25 1000])
+%                 colorbar
+%                 title('\mu reference (mm)')
+%                 axis equal
+%                 axis tight
+%                 set(gca,'XTickLabels',l,'XTickLabelRotation',90,'XTick',1:size(s,1),'YTickLabels',l,'YTick',1:size(s,1))
+        end
         
         function outlierMarkers = outlierDetectFast(this,data)
             i=indicatrix(this); %MxP
@@ -75,29 +175,48 @@ classdef markerModel
         end
         
         function markerScores = scoreMarkers(this,data)
+            %This works so-so. It does resolve markers that appear bad only
+            %because another was bad, but is too optimistic about the
+            %likelihood of those non-bad markers.
            L=loglikelihood(this,data); %PxN
            L(isnan(L))=0; %Is this the value to use? Should we use the mean from training instead?
            i=indicatrix(this); %MxP
-           markerMeans= (i * L)./sum(i,2); 
+           markerMeans= scoreMarkersNaive(this,data);
+           markerMeans(isnan(markerMeans))=0;
            [M,P]=size(i);
-           %Solve: 
+           L2=this.scoreMarkersRanked(data,1);
+           %Solve: min 1'*y s.t. y=((p-m)<=0) and L=>i*p
            uno=ones(M,1);
            cero=zeros(M,1);
-           f=[cero;uno];
            lb=[-Inf*uno; cero];
            ub=[Inf*uno;uno];
            K=max(abs(L(:)));
+           f=[-uno/(M*K);uno];
            markerScores=nan(M,size(L,2));
            opts=optimoptions('intlinprog','Display','off');
+           %aux=prctile(this.scoreMarkersNaive(this.trainingData),[5,50],2); %Using 2% worst training data to run
+           %th=aux(:,2)-2*(aux(:,2)-aux(:,1));
+           th=-(3.4)^2/2;
+           aux=sum(L2<th);
+           disp(['Running for ' num2str(sum(aux>0)) '/' num2str(length(aux)) ' frames.'])
            for j=1:size(L,2)
-           %Ineq 1: L >= i'*p;
-           A1=[i' zeros(P,M)]; b1=L(:,j);
-           %Ineq 2: y>(mm-p)/K -> -p/K-y < -mm/K
-           A2=[-eye(M)/K -eye(M)]; b2=-markerMeans(:,j)/K;
-           %Ineq 3: 1-y >= -(mm-p)/K -> 1+mm/K>= -y+p/K
-           A3=[eye(M)/K -eye(M)]; b3=uno+markerMeans(:,j)/K;
-           py=intlinprog(f,[M+1:2*M],[A1;A2;A3],[b1;b2;b3],[],[],lb,ub,opts);
-           markerScores(:,j)=py(1:M);
+               m=th*uno;
+               if aux(j)>1 %To reduce complexity, only run if naive scoring 
+                   %shows at least two outliers
+                   ll=L(:,j);
+                   p0=i*ll./sum(i,2);
+                   y0=(p0-m)<=0;
+                   %Ineq 1: L >= i'*p;
+                   A1=[i' zeros(P,M)]; b1=ll;
+                   %Ineq 2: y>(mm-p)/K -> -p/K-y < -mm/K
+                   A2=[-eye(M)/K -eye(M)]; b2=-m/K;
+                   %Ineq 3: 1-y >= -(mm-p)/K -> 1+mm/K>= -y+p/K
+                   A3=[eye(M)/K -eye(M)]; b3=uno+m/K;
+                   py=intlinprog(f,[M+1:2*M],[A1;A2;A3],[b1;b2;b3],[],[],lb,ub,[p0;y0],opts);
+                   markerScores(:,j)=py(1:M);
+               else
+                   markerScores(:,j)=L2(:,j);
+               end
            end
         end
         
@@ -144,11 +263,14 @@ classdef markerModel
         
         [dataFrame,params]=anchor(ss,anchorFrame,anchorWeights)
         
+        [M,xl,yl]=stat2Matrix(stats)
+        
         function lL=normalLogL(values,means,stds)
             %values is PxN, means and stds are Px1
             %Returns PxN likelihood of value under each normal
             d=.5*((values-means)./stds).^2;
-            lL=-d -log(stds) -.9189;
+            lL=-d;% -log(stds) -.9189;
+            %lL=-sqrt(2*d); %Mahalanobis distance
             %.9189 = log(2*pi)/2
         end
         

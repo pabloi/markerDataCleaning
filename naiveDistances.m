@@ -8,7 +8,11 @@ classdef naiveDistances < markerModel
         end
         function logL = loglikelihood(this,data)
             ss=this.summaryStats(data);
-            logL=markerModel.normalLogL(ss,this.statMean,this.statStd);
+            %sigma=this.statStd;
+            sigma=this.getRobustStd(.94);
+            %mu=this.statMean;
+            mu=this.statMedian;
+            logL=markerModel.normalLogL(ss,mu,sigma);
         end
         function i = indicatrix(this) %MxP
             M=this.Nmarkers;
@@ -21,59 +25,26 @@ classdef naiveDistances < markerModel
                 i(j,:)=aux(ind(:));
             end
         end
-        function [fh]=seeModel(this)
-            labels=this.markerLabels;
-            data=this.trainingData;
-                fh=figure; 
-                c=colormap;
-                c(1,:)=[1 1 1];
-                colormap(c)
-                subplot(3,2,1)
-                plot(this.statPrctiles',0:100)
-                title('Training stat cdfs')
-                subplot(3,2,2)
-                title('Stat sensitivity to marker components')
-                subplot(3,2,4)
-                s=triu(naiveDistances.stat2DistMatrix(this.statStd));
-                s(s==0)=-5;
-                imagesc(s)
-                colorbar
-                caxis([-5 200])
-                title('\sigma training (mm)')
-                axis equal
-                set(gca,'XTickLabels',labels,'XTickLabelRotation',90,'XTick',1:size(data,1),'YTickLabels',labels,'YTick',1:size(data,1))
-                subplot(3,2,3)
-                m=triu(naiveDistances.stat2DistMatrix(this.statMean));
-                m(m==0)=-25;
-                imagesc(m)
-                colorbar
-                caxis([-25 1000])
-                title('\mu training (mm)')
-                axis equal
-                set(gca,'XTickLabels',labels,'XTickLabelRotation',90,'XTick',1:size(data,1),'YTickLabels',labels,'YTick',1:size(data,1))
-                
-                %Reference data
-                [m,s,l]=naiveDistances.getRefData();
-                subplot(3,2,6)
-                s=triu(s);
-                s(s==0)=-5;
-                m=triu(m);
-                m(m==0)=-25;
-                imagesc(s)
-                colorbar
-                %colormap(c)
-                caxis([-5 200])
-                title('\sigma reference (mm)')
-                axis equal
-                set(gca,'XTickLabels',l,'XTickLabelRotation',90,'XTick',1:size(s,1),'YTickLabels',l,'YTick',1:size(s,1))
-                subplot(3,2,5)
-                imagesc(m)
-                caxis([-25 1000])
-                colorbar
-                title('\mu reference (mm)')
-                axis equal
-                set(gca,'XTickLabels',l,'XTickLabelRotation',90,'XTick',1:size(s,1),'YTickLabels',l,'YTick',1:size(s,1))
+        function fh=seeModel(this)
+           fh=this.seeModel@markerModel; 
+           subplot(3,2,[2,4,6])
+           hold on
+           m=nanmedian(this.trainingData,3);
+           i=this.indicatrix;
+           sigma=this.getRobustStd(.94);
+           mu=this.statMedian;
+                for j=1:size(i,2)
+                    if sigma(j)<10.5
+                    aux=find(i(:,j));
+                    n=mean(m(aux,:));
+                    for k=1:length(aux)
+                       plot3([n(1) m(aux(k),1)],[n(2) m(aux(k),2)],[n(3) m(aux(k),3)],'k')
+                    end
+                    text(n(1),n(2),n(3),['mu=' num2str(mu(j),3) ', sigma=' num2str(sigma(j),2)])
+                    end
+                end
         end
+        
     end
     methods(Static)
         function [ss,g] = summaryStats(data)
@@ -124,6 +95,11 @@ classdef naiveDistances < markerModel
            ss=reshape(D,M^2,N);
            ind=triu(true(M),1);
            ss=ss(ind(:),:); %Keeping only upper half: PxN, with P=M*(M-1)/2
+        end
+        function [D,xl,yl]=stat2Matrix(ss)
+            D=triu(naiveDistances.stat2DistMatrix(ss));
+            xl='markerLabels';
+           yl='markerLabels';
         end
     end
     methods(Static,Hidden)
