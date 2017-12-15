@@ -5,6 +5,7 @@ classdef naiveDistances < markerModel
     methods
         function this = naiveDistances(trainData,labs)    
             this=this@markerModel(trainData,labs);
+            this.activeStats=this.statStd<10 & this.statStd<(this.statMean/2);
         end
         function logL = loglikelihood(this,data)
             ss=this.summaryStats(data);
@@ -13,6 +14,9 @@ classdef naiveDistances < markerModel
             %mu=this.statMean;
             mu=this.statMedian;
             logL=markerModel.normalLogL(ss,mu,sigma);
+            logL(~this.activeStats,:)=0;
+            logL=logL(this.activeStats,:);
+            logL(isnan(logL))=0;
         end
         function i = indicatrix(this) %MxP
             M=this.Nmarkers;
@@ -24,6 +28,7 @@ classdef naiveDistances < markerModel
                 aux(j,:)=1;
                 i(j,:)=aux(ind(:));
             end
+            i=i(:,this.activeStats);
         end
         function fh=seeModel(this)
            fh=this.seeModel@markerModel; 
@@ -34,14 +39,14 @@ classdef naiveDistances < markerModel
            sigma=this.getRobustStd(.94);
            mu=this.statMedian;
                 for j=1:size(i,2)
-                    if sigma(j)<10.5
+                    %if this.activeStats(j)
                     aux=find(i(:,j));
                     n=mean(m(aux,:));
                     for k=1:length(aux)
                        plot3([n(1) m(aux(k),1)],[n(2) m(aux(k),2)],[n(3) m(aux(k),3)],'k')
                     end
                     text(n(1),n(2),n(3),['mu=' num2str(mu(j),3) ', sigma=' num2str(sigma(j),2)])
-                    end
+                    %end
                 end
         end
         

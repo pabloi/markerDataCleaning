@@ -7,6 +7,7 @@ classdef markerModel
         statStd
         trainingLogLPrctiles=[]; %Stores prctiles for log-l distribution in training data
         statPrctiles
+        activeStats
     end
     properties(Dependent)
         Nmarkers
@@ -22,6 +23,7 @@ classdef markerModel
             mm.statStd=nanstd(trainStats,[],2);
             mm.statPrctiles=prctile(trainStats,0:100,2);
             mm.trainingLogLPrctiles=prctile(mm.loglikelihood(trainData),0:100,2);
+            mm.activeStats=true(size(mm.statMean));
         end
         
         function M = get.Nmarkers(this)
@@ -133,29 +135,26 @@ classdef markerModel
         function outlierMarkers = outlierDetectFast(this,data)
             i=indicatrix(this); %MxP
             %outStats=summaryStats(this,data)<this.statPrctiles(:,2) | s>this.statPrctiles(:,100); %Finding stats in the 1% tails (both) 
-            outStats=this.loglikelihood(data) < this.trainingLogLPrctiles(:,2); %Finding likelihood in 1st percentile
+            outStats=this.loglikelihood(data) < -(5^2)/2; %Finding likelihood in 1st percentile
             outlierMarkers=i'\outStats >.1; %This is the correct form, though i*outstats returns comparable results and is sparse
             
         end
         
-        function outlierMarkers = outlierDetect(this,data)
-            i=indicatrix(this); %MxP
-            %outStats=summaryStats(this,data)<this.statPrctiles(:,2) | s>this.statPrctiles(:,100); %Finding stats in the 1% tails (both) 
-            outStats=this.loglikelihood(data) < this.trainingLogLPrctiles(:,2); %Finding likelihood in 1st percentile
-            %Alt: (optimal in some sense, but slow)
-            outlierStatCountPerMarker=i * outStats; %Counting outlier stats per marker
-            aux=any(outlierStatCountPerMarker>1);
-            outlierMarkers=zeros(size(outlierStatCountPerMarker));
-            for j=1:size(outlierStatCountPerMarker,2)
-                if aux(j) %Not optimizing if at least one marker doesn't have 2 outlying stats
-                    outlierMarkers(:,j)=markerModel.untanglePairedStats(outlierStatCountPerMarker(:,j)); %This is better than thresholding to some arbitrary value
-                end
-            end
-
-        end
-        
-        function outlierMarkers = outlierDetectThreshold(this,data)
-            ll5=mm.scoreMarkers(dd);
+        function [outlierMarkers,logL] = outlierDetect(this,data)
+%             i=indicatrix(this); %MxP
+%             %outStats=summaryStats(this,data)<this.statPrctiles(:,2) | s>this.statPrctiles(:,100); %Finding stats in the 1% tails (both) 
+%             outStats=this.loglikelihood(data) < this.trainingLogLPrctiles(:,2); %Finding likelihood in 1st percentile
+%             %Alt: (optimal in some sense, but slow)
+%             outlierStatCountPerMarker=i * outStats; %Counting outlier stats per marker
+%             aux=any(outlierStatCountPerMarker>1);
+%             outlierMarkers=zeros(size(outlierStatCountPerMarker));
+%             for j=1:size(outlierStatCountPerMarker,2)
+%                 if aux(j) %Not optimizing if at least one marker doesn't have 2 outlying stats
+%                     outlierMarkers(:,j)=markerModel.untanglePairedStats(outlierStatCountPerMarker(:,j)); %This is better than thresholding to some arbitrary value
+%                 end
+%             end
+            logL=this.scoreMarkers(data);
+            outlierMarkers=logL<-(5)^2/2;
         end
         
         function markerScores = scoreMarkersNaive(this,data)
@@ -184,7 +183,7 @@ classdef markerModel
            markerMeans= scoreMarkersNaive(this,data);
            markerMeans(isnan(markerMeans))=0;
            [M,P]=size(i);
-           L2=this.scoreMarkersRanked(data,1);
+           L2=this.scoreMarkersRanked(data,2);
            %Solve: min 1'*y s.t. y=((p-m)<=0) and L=>i*p
            uno=ones(M,1);
            cero=zeros(M,1);
@@ -196,13 +195,16 @@ classdef markerModel
            opts=optimoptions('intlinprog','Display','off');
            %aux=prctile(this.scoreMarkersNaive(this.trainingData),[5,50],2); %Using 2% worst training data to run
            %th=aux(:,2)-2*(aux(:,2)-aux(:,1));
-           th=-(3.4)^2/2;
+           th=-(5)^2/2;
            aux=sum(L2<th);
            disp(['Running for ' num2str(sum(aux>0)) '/' num2str(length(aux)) ' frames.'])
+           warning('off')
+           markerScores=L2;
            for j=1:size(L,2)
                m=th*uno;
-               if aux(j)>1 %To reduce complexity, only run if naive scoring 
+               if aux(j)>1 %To reduce complexity, only run if ranked scoring shows 2 or more bad markers
                    %shows at least two outliers
+                   idx=L2(:,j)<th;
                    ll=L(:,j);
                    p0=i*ll./sum(i,2);
                    y0=(p0-m)<=0;
@@ -212,12 +214,23 @@ classdef markerModel
                    A2=[-eye(M)/K -eye(M)]; b2=-m/K;
                    %Ineq 3: 1-y >= -(mm-p)/K -> 1+mm/K>= -y+p/K
                    A3=[eye(M)/K -eye(M)]; b3=uno+m/K;
-                   py=intlinprog(f,[M+1:2*M],[A1;A2;A3],[b1;b2;b3],[],[],lb,ub,[p0;y0],opts);
-                   markerScores(:,j)=py(1:M);
-               else
-                   markerScores(:,j)=L2(:,j);
+                   %Ineq 4: i'*y >= (ll<th) [each outlying stat has at least
+                   %one outlying marker involved in it]
+                   A4=[zeros(P,M) -i'];
+                   b4=-(ll<th);
+                   %Eq:
+                   Aeq=[diag(idx~=1) zeros(M)];
+                   beq=L2(:,j);
+                   beq(idx==1)=0;
+                   Aeq=[];
+                   beq=[];
+                   py=intlinprog(f,[M+1:2*M],[A1;A2;A3;A4],[b1;b2;b3;b4],Aeq,beq,lb,ub,[p0;y0],opts);
+                   if ~isempty(py)
+                    markerScores(:,j)=py(1:M);
+                   end
                end
            end
+           warning('on')
         end
         
         function markerScores = scoreMarkersMedian(this,data)
@@ -234,18 +247,24 @@ classdef markerModel
         
         function markerScores = scoreMarkersRanked(this,data,N)
             if nargin<3
-                N=3; %Using third-worse score
+                N=2; %Using third-worse score
             end
-           nn=isnan(data);
+            
+           %nn=isnan(data);
            L=loglikelihood(this,data); %PxN
-           L(isnan(L))=0; %Is this the value to use? Should we use the mean from training instead?
+           [P,Nn]=size(L);
            i=indicatrix(this); %MxP
-           markerScores=nan(size(i,1),size(L,2));
+           %L(isnan(L))=0; %Is this the value to use? Should we use the mean from training instead?
+           if N>1
+               markerScores=nan(size(i,1),size(L,2));
            for j=1:size(i,1)
                aux=sort(L(i(j,:)==1,:),1);
                markerScores(j,:)=aux(N,:);
            end
-           markerScores(squeeze(any(nn,2)))=NaN;
+           %markerScores(squeeze(any(nn,2)))=NaN;
+            else
+                markerScores=squeeze(min(i.*reshape(L,1,P,Nn),[],2));
+           end
         end
     end
     
