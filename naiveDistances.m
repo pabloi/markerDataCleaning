@@ -53,7 +53,188 @@ classdef naiveDistances < markerModel
                     %end
                 end
         end
+        function [badFlag,mirrorOutliers,outOfBoundsOutlier] = validateMarkerModel(this,verbose)
+            outOfBoundsOutlier=false(size(this.trainingData,1),1);
+            if nargin<2 || isempty(verbose)
+                verbose=true;
+            end
+            badFlag=false;
+            %Check three things: 
+            %1) No marker is closer to a contralateral marker
+            %than its ipsilateral counterpart
+            %This requires L/R markers to be sorted properly
+            mu=naiveDistances.stat2Matrix(this.statMedian);
+            M=size(mu,1);
+%             iL=cellfun(@(x) ~isempty(x),regexp(this.markerLabels,'^L*'));
+%             iR=cellfun(@(x) ~isempty(x),regexp(this.markerLabels,'^R*'));
+%            if sum(iL)>=sum(iR)
+%                aux=regexprep(this.markerLabels(iR),'^R*','L');
+%                [b,iL]=compareListsNested(this.markerLabels,aux);
+%                iL=iL(b);
+%                [~,iR]=compareListsNested(this.markerLabels,this.markerLabels(iR));
+%                iR=iR(b);
+%            else
+%                aux=regexprep(this.markerLabels(iL),'^L*','R');
+%                [b,iR]=compareListsNested(this.markerLabels,aux);
+%                iR=iR(b);
+%                [~,iL]=compareListsNested(this.markerLabels,this.markerLabels(iL));
+%                iL=iL(b);
+%            end
+%             firstHalf=iL;
+%             secondHalf=fliplr(iR);
+            firstHalf=1:ceil(M/2);
+            secondHalf=ceil(M/2)+1:M;
+            mu1=triu(mu(firstHalf,firstHalf));
+            mu2=triu(fliplr(mu(firstHalf,secondHalf)));
+            mu3=triu(mu(secondHalf,secondHalf));
+            mu4=triu(flipud(mu(firstHalf,secondHalf)));
+            D=[mu2<mu1,zeros(size(mu1));zeros(size(mu1)),mu4<mu3] & mu([firstHalf secondHalf],[firstHalf secondHalf])<700; %Using 700mm as a threshold for distances to look at
+            %otherwise we compare something like RPSIS to RTOE and LTOE, which by geometry are almost equally far from RPSIS, and any movement or placement asymmetry will raise an alarm. 
+            %Excluding SHANK and THIGH from this, since markers are not meant to be placed symmetrically
+            [bool,idxs] = compareListsNested(this.markerLabels,{'RTHI','LTHI','LTHIGH','RTHIGH','RSHANK','LSHANK','LSHA','RSHA','LSHNK','RSHNK'});
+            D(idxs(bool),:)=false;
+            D(:,idxs(bool))=false;
+            [outMarkers1]=markerModel.untangleOutliers( naiveDistances.distMatrix2stat(D),this.indicatrix(true));
+            if any(outMarkers1)
+                if verbose
+                fprintf(['Mislabeled markers. Contralat. distances > ipsilat. for: '])
+                fprintf([cell2mat(strcat(this.markerLabels(outMarkers1),', ')) '\n'])
+                end
+                badFlag=true;
+            end
+            mirrorOutliers=outMarkers1;
+
+            %2) The two (three?) closest markers (ipsilaterally along z-axis: as sorted before) to any given marker have std<10
+            sigma=naiveDistances.stat2Matrix(this.getRobustStd(.94));
+            if any(any(triu(sigma)-triu(sigma,3)))>10
+                if verbose
+                fprintf(['Too much variability for adjacent markers.\n'])
+                end
+                badFlag=true;
+            end
+
+            %3) No marker pair has a distance outside the admissible bounds
+            load distanceModelReferenceData.mat
+            [bool,idxs] = compareListsNested(this.markerLabels,markerLabels);
+            list1=this.markerLabels(idxs(bool));
+            list2=markerLabels(bool);
+            if ~all(strcmp(list1,list2))
+                error('Incompatible lists')
+            end   
+            upperBound=upperBound(bool,bool);
+            lowerBound=lowerBound(bool,bool);
+            reducedMu=mu(idxs(bool),idxs(bool));
+            if any(any(reducedMu<lowerBound | reducedMu>upperBound))
+                D= zeros(size(mu));
+                D(idxs(bool),idxs(bool))= reducedMu<lowerBound | reducedMu>upperBound;
+                in=this.indicatrix(true);
+                [outMarkers2]=markerModel.untangleOutliers(naiveDistances.distMatrix2stat(D),in);
+                if verbose
+                fprintf(['Marker distances above or below the allowed limits for markers: '])
+                fprintf([cell2mat(strcat(this.markerLabels(outMarkers2),', ')) '\n'])
+                end
+            %                             [ii,jj]=find(reducedMu<lowerBound | reducedMu>upperBound);
+            %                             for i1=1:length(ii)
+            %                                disp(['Mean distance from ' distanceModel.markerLabels{ii(i1)} ' to ' distanceModel.markerLabels{jj(i1)} ' (' num2str(reducedMu(ii(i1),jj(i1)),3) 'mm) exceeds limits [' num2str(lowerBound(ii(i1),jj(i1)),3) ', ' num2str(upperBound(ii(i1),jj(i1)),3) 'mm].']) 
+            %                             end
+                badFlag=true;
+                outOfBoundsOutlier=outMarkers2;
+             end
+
+        end
         
+        function [permutationList,newModel] = permuteModelLabels(model)
+            %Checks if a model is invalid, and if it is, tries to find label
+            %permutations that would make it valid.
+
+            [~,mirrorOutliers,outOfBoundsOutlier] = model.validateMarkerModel(false);
+            nBad=sum(mirrorOutliers | outOfBoundsOutlier);
+            nBinit=nBad;
+            newModel=model;
+            if nBad>10 %Too many permutations, search is not feasible
+                error('Too many possible permutations, search is not feasible')
+            end
+
+
+            %First try with permutations of markers marked as bad:
+            permutationList=nan(0,2);
+            if nBad>1 && any(mirrorOutliers)
+                [newModel,permutationList,nBad]=tryPermutations(newModel,find(mirrorOutliers));
+            end
+
+            %Second: if there are still bad things, try with permutations of mirror outliers OR outOfBounds
+            if nBad>1
+                [~,mirrorOutliers,outOfBoundsOutlier] = validateMarkerModel(newModel,false);
+                [newModel,permutationList2,nBad]=tryPermutations(model,find(mirrorOutliers | outOfBoundsOutlier));
+                permutationList=[permutationList;permutationList2];
+            end
+
+            %Third: try with permutations of everything (possibly unfeasible because of number of permutations to try)
+            %if nBad>0
+            %    [~,mirrorOutliers,outOfBoundsOutlier] = validateMarkerModel(model,false);
+            %    [newModel,permutationList2,nBad]=tryPermutations(model,find(mirrorOutliers | outOfBoundsOutlier));
+            %    permutationList=[permutationList;permutationList2];
+            %end
+
+            if nBad==0 %No issues remain
+                %disp('Success! Found permutation that fixes issues.')
+            elseif nBad<nBinit
+                %warning('Improved results through permutation, but some issues remain.')
+            else
+                %warning('No improvement was found')
+                permutationList=[];
+                newModel=model;
+            end
+        end
+        
+        function newModel=applyPermutation(model,permutation)
+            newModel=model;
+            %First, permute the training data:
+            for i=1:size(permutation,1)
+                newModel.trainingData(permutation(i,:),:,:)=newModel.trainingData(fliplr(permutation(i,:)),:,:);
+            end
+            
+            %Inefficient: re-train
+            newModel = naiveDistances(newModel.trainingData,newModel.markerLabels);    
+            %Efficient:
+            %             %Second, find all stats referring to first and second elements of permutation:
+            %             I=model.indicatrix(true);
+            %             I1=I(permutation(1),:);
+            %             I2=I(permutation(2),:);
+        end  
+    end
+    methods(Hidden)
+        function [model,permutationList,nBad]=tryPermutations(model,listToPermute)
+            permutationList=zeros(0,2);
+            %Benchmark to compare:
+            [~,mirrorOutliers,outOfBoundsOutlier] = validateMarkerModel(model,false);
+            nBad=sum(mirrorOutliers | outOfBoundsOutlier);
+
+            while nBad>0
+                %Permutations to consider:
+                listOfPermutations=nchoosek(listToPermute,2);
+                N=size(listOfPermutations,1);
+                count=0;
+                while count<N
+                   count=count+1;
+                   modelAux=applyPermutation(model,listOfPermutations(count,:)); %Permute
+                   [~,newMO,newOBO] = validateMarkerModel(modelAux,false);
+                   newNB=sum(newMO | newOBO);
+                   if newNB<nBad %Found permutation that improves things
+                       break
+                   end
+                end
+                if newNB>=nBad %Checking if while exited without making any improvements
+                    return
+                else %Improvement was made!
+                    %New benchmark:
+                    model=modelAux;
+                    [~,mirrorOutliers,outOfBoundsOutlier] = validateMarkerModel(model,false);
+                    nBad=sum(mirrorOutliers | outOfBoundsOutlier); 
+                    permutationList=[permutationList;listOfPermutations(count,:)]; %Adding permutation to list
+                end
+            end
+        end     
     end
     methods(Static)
         function [ss,g] = summaryStats(data)
@@ -87,6 +268,7 @@ classdef naiveDistances < markerModel
             knownDistances=stat2DistMatrix(ss);
             [dataFrame] = getPositionFromDistances_v2(anchorFrame,knownDistances,anchorWeights);
         end
+        
         function D=stat2DistMatrix(ss)
             %ss is M(M-1)/2 x N
             M=ceil(sqrt(2*size(ss,1)));
