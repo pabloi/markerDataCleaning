@@ -1,8 +1,11 @@
-function [pos] = getPositionFromDistances_v2(knownPositions,knownDistances,weights,initGuess)
-%v2 allos for many pos to be estimated simultaneously
+function [pos] = getPositionFromDistances_v3(knownPositions,knownDistances,posWeights,distWeights,initGuess)
+%v2 allows for many pos to be estimated simultaneously
+%v3 allows for position AND distance weights. Position weights value how
+%much we should respect the given positions, while distance weights how
+%much we should respect the distances between markers (sames as before)
 %INPUT:
 %knownPositions: N x D  matrix, D being dimension of space
-%knownDistances: N x M matrix containing distances from unknown points to
+%knownDistances: (N+M) x M matrix containing distances from unknown points (M) to known ones (N)
 %weights: N x M vector to weigh the distances in the regression (larger
 %weights means the distance is better preserved)
 %OUTPUT:
@@ -10,14 +13,13 @@ function [pos] = getPositionFromDistances_v2(knownPositions,knownDistances,weigh
 
 [N,dim]=size(knownPositions);
 [N1,M]=size(knownDistances);
-if nargin<3 || isempty(weights)
+if nargin<4 || isempty(distWeights)
     weights=ones(size(knownDistances));
-elseif size(weights,1)~=N
+elseif size(distWeights,1)~=N
     error('Weight dimensions mismatch')
 end
-weights=weights/sum(weights); %Normalizing to 1    
 
-if nargin<4 || isempty(initGuess)
+if nargin<5 || isempty(initGuess)
     initGuess=mean(knownPositions);
 end
 
@@ -28,19 +30,9 @@ end
 %Option 1:
 %Do a least-squares regression:
 opts = optimoptions('fminunc','Algorithm','trust-region','SpecifyObjectiveGradient',true,'Display','off');
-pos=fminunc(@(x) distanceDistanceAllNew(reshape(x,M,dim),knownPositions,knownDistances,weights),initGuess(:),opts);
+pos=fminunc(@(x) distanceDistanceAll(reshape(x,M,dim),knownPositions,knownDistances,posWeights,distWeights),initGuess(:),opts);
 
 end
-
-% function [f,g]=distanceDistance(x,kP,kD,w)
-%     xx=bsxfun(@minus,x,kP); %Relative positions
-%     normXX=sqrt(sum(xx.^2,2));
-%     f=norm(w.*(normXX-kD))^2;
-%     gg1=2*w.^2.*(normXX-kD);
-%     gg2=bsxfun(@rdivide,xx,normXX);
-%     gg=bsxfun(@times,gg1,gg2);
-%     g=sum(gg,1);
-% end
 
 %Old: (cuadratic weighing of distances)
 function [f,g]=distanceDistanceAll(x,kP,kD,w)
@@ -74,6 +66,18 @@ function [f,g]=distanceDistanceAllNew(x,kP,kD,w)
     %gg=bsxfun(@times,reshape(gg1,size(gg2,1),1,size(gg2,3)),gg2); %M x dim x N
     %g=sum(gg,3); %M x dim
     g=g(:);
+end
+
+%Newest: linear weighing of distances between markers + movement from original
+function [f,g]=distanceDistanceAllMixed(x,kP,kD,wP,wD)
+    [M,dim]=size(x);
+    [N,dim]=size(kP);
+    [D1,g1]=pos2Dist(x); 
+    [D2,g2]=pos2Dist(x,kP); %We care only about the diagonal of this
+    D2=diag(D2);
+    for i=1:M
+    g2=g2();
+    
 end
 
 function [D,gx]=pos2Dist(x,y)

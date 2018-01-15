@@ -65,23 +65,6 @@ classdef naiveDistances < markerModel
             %This requires L/R markers to be sorted properly
             mu=naiveDistances.stat2Matrix(this.statMedian);
             M=size(mu,1);
-%             iL=cellfun(@(x) ~isempty(x),regexp(this.markerLabels,'^L*'));
-%             iR=cellfun(@(x) ~isempty(x),regexp(this.markerLabels,'^R*'));
-%            if sum(iL)>=sum(iR)
-%                aux=regexprep(this.markerLabels(iR),'^R*','L');
-%                [b,iL]=compareListsNested(this.markerLabels,aux);
-%                iL=iL(b);
-%                [~,iR]=compareListsNested(this.markerLabels,this.markerLabels(iR));
-%                iR=iR(b);
-%            else
-%                aux=regexprep(this.markerLabels(iL),'^L*','R');
-%                [b,iR]=compareListsNested(this.markerLabels,aux);
-%                iR=iR(b);
-%                [~,iL]=compareListsNested(this.markerLabels,this.markerLabels(iL));
-%                iL=iL(b);
-%            end
-%             firstHalf=iL;
-%             secondHalf=fliplr(iR);
             firstHalf=1:ceil(M/2);
             secondHalf=ceil(M/2)+1:M;
             mu1=triu(mu(firstHalf,firstHalf));
@@ -193,15 +176,24 @@ classdef naiveDistances < markerModel
             for i=1:size(permutation,1)
                 newModel.trainingData(permutation(i,:),:,:)=newModel.trainingData(fliplr(permutation(i,:)),:,:);
             end
-            
             %Inefficient: re-train
             newModel = naiveDistances(newModel.trainingData,newModel.markerLabels);    
-            %Efficient:
-            %             %Second, find all stats referring to first and second elements of permutation:
-            %             I=model.indicatrix(true);
-            %             I1=I(permutation(1),:);
-            %             I2=I(permutation(2),:);
+            %Efficient:...
         end  
+        function mleData=reconstruct(this,data,priors)
+            %INPUTs:
+            %this: a model
+            %data: M (markers) x3(dim) xN (frames)
+            %priors: MxN or Mx1 matrix containing the uncertainty in positions we think we have.
+            if nargin<3 || isempty(priors)
+               %Assume that priors are each marker's score according to this same model 
+               %priors=...
+            end
+            [M,D,N]=size(data);
+            for k=1:N
+                mleData(:,:,k)=naiveDistances.invertAndAnchor(this.statMean,data(:,:,k),priors(:,k));
+            end
+        end
     end
     methods(Hidden)
         function [model,permutationList,nBad]=tryPermutations(model,listToPermute)

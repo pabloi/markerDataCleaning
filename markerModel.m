@@ -206,6 +206,8 @@ classdef markerModel
                 markerScores=squeeze(min(i.*reshape(L,1,P,Nn),[],2));
            end
         end
+        
+        mapData = reconstruct(this,data,priors)
     end
     
     methods(Static)
