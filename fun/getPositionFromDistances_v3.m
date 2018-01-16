@@ -40,87 +40,51 @@ distWeights=triu(distWeights,1); %Because distances are doubled, I am only honor
 
 %Option 1:
 %Do a least-squares regression:
-opts = optimoptions('fminunc','Algorithm','trust-region','SpecifyObjectiveGradient',true,'Display','off');
-pos=fminunc(@(x) distanceDistanceAllMixed(reshape(x,N,dim),knownPositions,knownDistances,posWeights,distWeights),initGuess(:),opts);
+opts = optimoptions('fminunc','Algorithm','trust-region','SpecifyObjectiveGradient',true,'HessianFcn','objective','Display','off');
+pos=fminunc(@(x) cost(reshape(x,N,dim),knownPositions,knownDistances,posWeights,distWeights),initGuess(:),opts);
 
 pos=reshape(pos,N,dim);
 end
 
-%New: (linear weighing of distances
-function [f,g]=distanceDistanceAllNew(x,kP,kD,w)
+function [f,g,h]=cost(x,kP,kD,wP,wD)
     [M,dim]=size(x);
     [N,dim]=size(kP);
-    %xx=bsxfun(@minus,x,reshape(kP',1,size(kP,2),size(kP,1))); %M x dim x N
-    %normXX=sqrt(sum(xx.^2,2)); %M x 1 x N
-    %f=sum(sum((w'.*(reshape(normXX,M,N)-kD')).^2)); %scalar
-    [nD,gx]=pos2Dist(x,kP);
-    f=sum(sum((w'.*abs(nD-kD')))); %scalar
-    g=reshape(sum(w'.*sign(nD-kD').*gx,2),N,dim); %Gradient with respect to x
-    %gg1=2*w'.^2.*(nD-kD'); %M x N
-    %gg2=bsxfun(@rdivide,xx,normXX); %M x dim x N
-    %gg=bsxfun(@times,reshape(gg1,size(gg2,1),1,size(gg2,3)),gg2); %M x dim x N
-    %g=sum(gg,3); %M x dim
-    g=g(:);
+    [D1,g1,h1]=pos2Dist(x);  %Can also use pos2Dist2 for quadratic weighing   
+    [D2,g2,h2]=pos2Dist(x,kP); %We care only about the diagonal of this
+    f=sum(sum(wD.*abs(D1-kD))) + sum(sum(diag(wP).*D2,1),2);
+    g=reshape(sum(sum(wD.*sign(D1-kD).*g1,2),1),N*dim,1) + reshape(sum(sum(diag(wP).*g2,1),2),N*dim,1);
+    h=reshape(sum(sum(wD.*sign(D1-kD).*h1,2),1),N*dim,N*dim) + reshape(sum(sum(diag(wP).*h2,1),2),N*dim,N*dim);
 end
 
-%Newest: linear weighing of distances between markers + movement from original
-function [f,g]=distanceDistanceAllMixed(x,kP,kD,wP,wD)
-    [M,dim]=size(x);
-    [N,dim]=size(kP);
-    [D1,g1]=pos2Dist(x); 
-    [D2,g2a]=pos2Dist(x,kP); %We care only about the diagonal of this
-    D2=diag(D2);
-    %g2=nan(M,dim);
-    for i=1:dim
-        g2(:,i)=diag(g2a(:,:,i));
-    end
-    f=sum(sum(wD.*abs(D1-kD))) + wP'*D2;
-    g=reshape(sum(wD.*sign(D1-kD).*g1,2),N,dim) + wP.*g2;
-    g=g(:);
-end
-
-function [D,gx]=pos2Dist(x,y)
-    %x is Nxdim
-    %y is Mxdim
-    %D is NxM matrix containing distances
-    if nargin<2 || isempty(y)
-        y=x;
-    end
-    [N,dim]=size(x);
-    [M,dim]=size(y);
-    xx=bsxfun(@minus,x,reshape(y',1,dim,M)); %N x dim x M
-    xx=permute(xx,[1,3,2]); %NxMxdim
-    D=sqrt(sum(xx.^2,3)); %NxM
-    if nargout>1 %Computing gradients too
-        gx=bsxfun(@rdivide,xx,D); %NxMxdim
-        for k=1:3
-            aux=gx(:,:,k);
-            aux(D==0)=1;
-            gx(:,:,k)=aux;
-        end
-        %gx=xx./d; %allowed in R2017a and newer
-        %gy=-gx; -> Gradients are opposite to one another if we preserve the shape
-    end
-end
-
-%% A little script to test distanceDistanceAll:
-% X1=randn(10,3);
-% D=computeDistanceMatrix(X1);
-% kP=X1(1:7,:);
-% kD=D(1:7,8:10);
-% w=ones(size(kD));
+%% A little script to test cost:
+% %% Data
+% N=4;
+% dim=3;
+% X=randn(N,dim);
+% x2=randn(N,dim);
+% kD=randn(N,N);
+% wP=randn(N,1);
+% wD=randn(size(kD));
 % 
-% %% Eval:
-% xA=randn(3,3);
-% [fA,gA]=distanceDistanceAll(xA,kP,kD,w);
-% xB=bsxfun(@plus,xA,[0, 0, 1e-5]);
-% [fB,gB]=distanceDistanceAll(xB,kP,kD,w);
-% xC=bsxfun(@plus,xA,[0, 1e-5, 0]);
-% [fC,gC]=distanceDistanceAll(xC,kP,kD,w);
-% xD=bsxfun(@plus,xA,[1e-5, 0, 0]);
-% [fD,gD]=distanceDistanceAll(xD,kP,kD,w);
-% sum(reshape(gA,3,3),1)
+% %% comparing gradient in cross-distance to empirical results
 % 
-% [(fD-fA) (fC-fA) (fB-fA)]/1e-5
+% [d,g,h]=cost(X,x2,kD,wP,wD);
+% epsilon=1e-7;
+% empG=nan(N,dim);
+% empH=nan(N,dim,N,dim);
+% for i=1:N
+%     for k=1:dim
+%         aux=zeros(size(X));
+%         aux(i,k)=epsilon;
+%         [d1,g1,h1]=cost(X+aux,x2,kD,wP,wD);
+%         empG(i,k)=(d1-d)/epsilon;
+%         empH(:,:,i,k)=(reshape(g1,N,dim)-reshape(g,N,dim))/epsilon;
+%     end
+% end
+% disp(['Max gradient element: ' num2str(max(abs(g(:))))])
+% disp(['Max gradient err: ' num2str(max(abs(g(:)-empG(:))))])
+% disp(['Max gradient err (%): ' num2str(100*max(abs(g(:)-empG(:))./abs(g(:))))])
 % 
-% [fA,~]=distanceDistanceAll(X1(8:10,:),kP,kD,w)
+% disp(['Max hessian element: ' num2str(max(abs(h(:))))])
+% disp(['Max hessian err: ' num2str(max(abs(h(:)-empH(:))))])
+% disp(['Max hessian err (%): ' num2str(100*max(abs(h(:)-empH(:))./abs(h(:))))])
