@@ -124,8 +124,7 @@ classdef naiveDistances < markerModel
                 outOfBoundsOutlier=outMarkers2;
              end
 
-        end
-        
+        end        
         function [permutationList,newModel] = permuteModelLabels(model)
             %Checks if a model is invalid, and if it is, tries to find label
             %permutations that would make it valid.
@@ -169,7 +168,6 @@ classdef naiveDistances < markerModel
                 newModel=model;
             end
         end
-        
         function newModel=applyPermutation(model,permutation)
             newModel=model;
             %First, permute the training data:
@@ -180,18 +178,37 @@ classdef naiveDistances < markerModel
             newModel = naiveDistances(newModel.trainingData,newModel.markerLabels);    
             %Efficient:...
         end  
-        function mleData=reconstruct(this,data,priors)
+        function mleData=reconstruct(this,data,dataPriors)
             %INPUTs:
             %this: a model
             %data: M (markers) x3(dim) xN (frames)
-            %priors: MxN or Mx1 matrix containing the uncertainty in positions we think we have.
-            if nargin<3 || isempty(priors)
+            %priors: MxN or Mx1 matrix containing the uncertainty (std) in positions we think we have: assumes spherical uncertainty
+            [M,D,N]=size(data);
+            if nargin<3 || isempty(dataPriors)
                %Assume that priors are each marker's score according to this same model 
                %priors=...
+               dataPriors=ones(M,N);
             end
+            for k=1:N
+                %TODO: for speed, only run if at least one dataPrior is
+                %larger than X mm (ie. if we are certain about ALL markers,
+                %there is nothing to optimize for).
+                mleData(:,:,k)=naiveDistances.invertAndAnchor(this.statMean,data(:,:,k),1./dataPriors(:,k).^2,1./this.statStd.^2); %=invertAndAnchor(ss,anchorFrame,anchorWeights,distanceWeights)
+            end
+        end
+        function mleData=reconstructFast(this,data,missing)
+            %Similar to reconstruct, but only reconstructs missing markers
+            %for speed. Think of it as reconstruct, setting dataPriors=0
+            %for 'good' markers (no uncertainty at all) and dataPriors=Inf 
+            %INPUTs:
+            %this: a model
+            %data: M (markers) x3(dim) xN (frames)
             [M,D,N]=size(data);
             for k=1:N
-                mleData(:,:,k)=naiveDistances.invertAndAnchor(this.statMean,data(:,:,k),priors(:,k));
+                error('Unimplemented')
+                %Need to find missing markers, and use known markers as
+                %anchor points and unknown ones as the data to reconstruct
+                mleData(:,:,k)=naiveDistances.invertAndAnchorFast(this.statMean,data(:,:,k),1./this.statStd.^2); %=invertAndAnchor(ss,anchorFrame,anchorWeights,distanceWeights)
             end
         end
     end
@@ -256,9 +273,14 @@ classdef naiveDistances < markerModel
            params.R=R;
            params.t=t;
         end
-        function dataFrame=invertAndAnchor(ss,anchorFrame,anchorWeights)
+        function dataFrame=invertAndAnchor(ss,anchorFrame,anchorWeights,distanceWeights)
+            knownDistances=naiveDistances.stat2DistMatrix(ss);
+            distanceWeights=naiveDistances.stat2DistMatrix(distanceWeights);
+            [dataFrame] = getPositionFromDistances_v3(anchorFrame,knownDistances,anchorWeights,distanceWeights,anchorFrame);
+        end
+        function dataFrame=invertAndAnchorFast(ss,anchorFrame,anchorWeights)
             knownDistances=stat2DistMatrix(ss);
-            [dataFrame] = getPositionFromDistances_v2(anchorFrame,knownDistances,anchorWeights);
+            [dataFrame] = getPositionFromDistances_v2(anchorFrame,knownDistances,anchorWeights,anchorFrame);
         end
         
         function D=stat2DistMatrix(ss)

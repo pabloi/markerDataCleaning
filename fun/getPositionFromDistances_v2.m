@@ -1,4 +1,4 @@
-function [pos] = getPositionFromDistances_v2(knownPositions,knownDistances,weights,initGuess)
+function [pos] = getPositionFromDistances_v2(knownPositions,knownDistances,distWeights,initGuess)
 %v2 allos for many pos to be estimated simultaneously
 %INPUT:
 %knownPositions: N x D  matrix, D being dimension of space
@@ -10,12 +10,12 @@ function [pos] = getPositionFromDistances_v2(knownPositions,knownDistances,weigh
 
 [N,dim]=size(knownPositions);
 [N1,M]=size(knownDistances);
-if nargin<3 || isempty(weights)
-    weights=ones(size(knownDistances));
-elseif size(weights,1)~=N
+if nargin<3 || isempty(distWeights)
+    distWeights=ones(size(knownDistances));
+elseif size(distWeights,1)~=N
     error('Weight dimensions mismatch')
 end
-weights=weights/sum(weights); %Normalizing to 1    
+distWeights=distWeights/sum(distWeights); %Normalizing to 1    
 
 if nargin<4 || isempty(initGuess)
     initGuess=mean(knownPositions);
@@ -28,7 +28,7 @@ end
 %Option 1:
 %Do a least-squares regression:
 opts = optimoptions('fminunc','Algorithm','trust-region','SpecifyObjectiveGradient',true,'Display','off');
-pos=fminunc(@(x) distanceDistanceAllNew(reshape(x,M,dim),knownPositions,knownDistances,weights),initGuess(:),opts);
+pos=fminunc(@(x) distanceDistanceAllNew(reshape(x,M,dim),knownPositions,knownDistances,distWeights),initGuess(:),opts);
 
 end
 
@@ -43,19 +43,22 @@ end
 % end
 
 %Old: (cuadratic weighing of distances)
+%Only considers distances from the unknown markers to the known ones, but
+%not between the unknown ones (where arguably we can also have priors)
 function [f,g]=distanceDistanceAll(x,kP,kD,w)
     [M,dim]=size(x);
     [N,dim]=size(kP);
-    %xx=bsxfun(@minus,x,reshape(kP',1,size(kP,2),size(kP,1))); %M x dim x N
-    %normXX=sqrt(sum(xx.^2,2)); %M x 1 x N
-    %f=sum(sum((w'.*(reshape(normXX,M,N)-kD')).^2)); %scalar
+%     xx=bsxfun(@minus,x,reshape(kP',1,size(kP,2),size(kP,1))); %M x dim x N
+%     normXX=sqrt(sum(xx.^2,2)); %M x 1 x N
+%     nD=reshape(normXX,M,N);
+%     f=sum(sum((w'.*(nD-kD')).^2)); %scalar
+%     gg1=2*w'.^2.*(nD-kD'); %M x N
+%     gg2=bsxfun(@rdivide,xx,normXX); %M x dim x N
+%     gg=bsxfun(@times,reshape(gg1,size(gg2,1),1,size(gg2,3)),gg2); %M x dim x N
+%     g=sum(gg,3); %M x dim
     [nD,gx]=pos2Dist(x,kP);
     f=sum(sum((w'.*(nD-kD')).^2)); %scalar
-    g=reshape(2*sum(w'.^2.*(nD-kD').*gx,2),N,dim); %Gradient with respect to x
-    %gg1=2*w'.^2.*(nD-kD'); %M x N
-    %gg2=bsxfun(@rdivide,xx,normXX); %M x dim x N
-    %gg=bsxfun(@times,reshape(gg1,size(gg2,1),1,size(gg2,3)),gg2); %M x dim x N
-    %g=sum(gg,3); %M x dim
+    g=reshape(2*sum(w'.^2.*(nD-kD').*gx,2),M,dim); %Gradient with respect to x
     g=g(:);
 end
 
@@ -63,16 +66,9 @@ end
 function [f,g]=distanceDistanceAllNew(x,kP,kD,w)
     [M,dim]=size(x);
     [N,dim]=size(kP);
-    %xx=bsxfun(@minus,x,reshape(kP',1,size(kP,2),size(kP,1))); %M x dim x N
-    %normXX=sqrt(sum(xx.^2,2)); %M x 1 x N
-    %f=sum(sum((w'.*(reshape(normXX,M,N)-kD')).^2)); %scalar
     [nD,gx]=pos2Dist(x,kP);
     f=sum(sum((w'.*abs(nD-kD')))); %scalar
-    g=reshape(sum(w'.*sign(nD-kD').*gx,2),N,dim); %Gradient with respect to x
-    %gg1=2*w'.^2.*(nD-kD'); %M x N
-    %gg2=bsxfun(@rdivide,xx,normXX); %M x dim x N
-    %gg=bsxfun(@times,reshape(gg1,size(gg2,1),1,size(gg2,3)),gg2); %M x dim x N
-    %g=sum(gg,3); %M x dim
+    g=reshape(sum(w'.*sign(nD-kD').*gx,2),M,dim); %Gradient with respect to x
     g=g(:);
 end
 
@@ -89,7 +85,9 @@ function [D,gx]=pos2Dist(x,y)
     xx=permute(xx,[1,3,2]); %NxMxdim
     D=sqrt(sum(xx.^2,3)); %NxM
     if nargout>1 %Computing gradients too
-        gx=bsxfun(@rdivide,xx,d); %NxMxdim
+                D1=D;
+        D1(D==0)=1;
+        gx=bsxfun(@rdivide,xx,D1); %NxMxdim
         %gx=xx./d; %allowed in R2017a and newer
         %gy=-gx; -> Gradients are opposite to one another if we preserve the shape
     end
