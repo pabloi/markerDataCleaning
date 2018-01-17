@@ -39,11 +39,18 @@ end
 distWeights=triu(distWeights,1); %Because distances are doubled, I am only honoring the upper half of the distribution
 
 %Option 1:
-%Do a least-squares regression:
-opts = optimoptions('fminunc','Algorithm','trust-region','SpecifyObjectiveGradient',true,'HessianFcn','objective','Display','off');
-pos=fminunc(@(x) cost(reshape(x,N,dim),knownPositions,knownDistances,posWeights,distWeights),initGuess(:),opts);
+%Use Matlab's optim:
+%opts = optimoptions('fminunc','Algorithm','trust-region','SpecifyObjectiveGradient',true,'HessianFcn','objective','Display','final','FunctionTol',1e-12,'StepTolerance',1e-12);
+%trust-region doesn't work well for this problem. Using quasi-newton w/o gradient:
+%opts = optimoptions('fminunc','SpecifyObjectiveGradient',false,'Display','final','FunctionTol',1e-6,'StepTolerance',1e-6,'MaxFunctionEvaluations',1e4);
+%pos=fminunc(@(x) cost(reshape(x,N,dim),knownPositions,knownDistances,posWeights,distWeights),initGuess(:),opts);
+%pos=reshape(pos,N,dim);
+%[f,g,h]=cost(pos,knownPositions,knownDistances,posWeights,distWeights);
 
-pos=reshape(pos,N,dim);
+%Opt2: do my own:
+[pos,bestF,count]=minCost(knownPositions,knownDistances,posWeights,distWeights);
+
+
 end
 
 function [f,g,h]=cost(x,kP,kD,wP,wD)
@@ -54,6 +61,76 @@ function [f,g,h]=cost(x,kP,kD,wP,wD)
     f=sum(sum(wD.*abs(D1-kD))) + sum(sum(diag(wP).*D2,1),2);
     g=reshape(sum(sum(wD.*sign(D1-kD).*g1,2),1),N*dim,1) + reshape(sum(sum(diag(wP).*g2,1),2),N*dim,1);
     h=reshape(sum(sum(wD.*sign(D1-kD).*h1,2),1),N*dim,N*dim) + reshape(sum(sum(diag(wP).*h2,1),2),N*dim,N*dim);
+end
+function [f,g,h]=cost2(x,kP,kD,wP,wD)
+%Using this doesn't work as expected
+wP=wP.^2;
+wD=wD.^2;
+    [M,dim]=size(x);
+    [N,dim]=size(kP);
+    [D1,g1,h1]=pos2Dist2(x);  %Can also use pos2Dist2 for quadratic weighing   
+    [D2,g2,h2]=pos2Dist2(x,kP); %We care only about the diagonal of this
+    f=sum(sum(wD.*abs(D1-kD.^2))) + sum(sum(diag(wP).*D2,1),2);
+    g=reshape(sum(sum(wD.*sign(D1-kD).*g1,2),1),N*dim,1) + reshape(sum(sum(diag(wP).*g2,1),2),N*dim,1);
+    h=reshape(sum(sum(wD.*sign(D1-kD).*h1,2),1),N*dim,N*dim) + reshape(sum(sum(diag(wP).*h2,1),2),N*dim,N*dim);
+end
+
+function [bestX,bestF,count]=minCost(Y,kD,wP,wD,initGuess)
+if nargin<5 || isempty(initGuess)
+    %X=nanmean(Y,1)+randn(size(Y)); %Init guess: this improves convergence
+    X=Y+randn(size(Y));
+else
+    X=initGuess;
+end
+[f,g,~]=cost(X,Y,kD,wP,wD);
+lambda=.5*f/norm(g)^2;
+if lambda<100
+    lambda=100;
+end
+oldF=f;count=0;bestF=Inf;stuckCounter=0;bestX=X;
+countThreshold=1e5;funThreshold=5;stuckThreshold=10;
+while f>funThreshold && count<countThreshold && stuckCounter<stuckThreshold
+    X=X-lambda*reshape(g,size(X)); %Simple gradient descent
+    [f,g,~]=cost(X,Y,kD,wP,wD);
+    count=count+1;
+    if mod(count,5e1)==1 %Every 100 steps, update lambda
+        f,lambda,X
+        if f>1.01*oldF %Objective function increased noticeably(!) -> reducing lambda
+            lambda=.5*lambda;
+        elseif f>.9*oldF %Decreasing, but not decreasing fast enough
+            lambda=1.05*lambda; %Increasing lambda, in hopes to speed up
+            oldF=f;
+        else %Decreasing at good rate: doing nothing
+            oldF=f;
+        end
+        if f<.99*bestF %Found best point so far
+            bestF=f;bestX=X;stuckCounter=0;
+        else
+            stuckCounter=stuckCounter+1
+            %X=bestX+randn(size(X)); %Kick it
+        end
+    end
+end
+%Determining ending criteria:
+if f<funThreshold
+    bestF=f;   bestX=X;
+    disp('Objective function is below threshold')
+elseif count>=countThreshold
+    disp('Too many iterations. Stopping.')
+elseif stuckCounter>=stuckThreshold
+    if nargin>=5 %Init guess was given and failed
+        disp('Local minimum found. Stopping.')
+    else %Trying with some other random start
+        disp('Stuck. Trying once more.')
+        prevBF=bestF;
+        prevX=bestX;
+        [bestX,bestF,count]=minCost(Y,kD,wP,wD,nanmean(Y)+.1*std(Y,[],1).*randn(size(Y)));
+        if prevBF<bestF
+            bestX=prevX;
+            bestF=prevBF;
+        end
+    end
+end
 end
 
 %% A little script to test cost:

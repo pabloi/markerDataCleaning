@@ -41,10 +41,20 @@ d=permute(data,[2,3,1]);
 mm = naiveDistances.learn(d,labels);
 
 %%
-idx=1:2; %Some frames
+idx=1; %Some frames
 dd=d(:,:,idx);
-dd(isnan(dd))=0; %Marking missing data to arbitrary locations
+%dd(isnan(dd))=mean(dd(~isnan(dd(:,1)),:)); %Marking missing data to arbitrary locations
+dd(isnan(dd))=0;
 posSTD=ones(size(dd,1),size(dd,3));
-posSTD(missing(idx,:)')=1e5; %No idea where those markers are!
+posSTD(missing(idx,:)')=1e9; %No idea where those markers are!
 %%
 newDD=mm.reconstruct(dd,posSTD);
+%%
+figure;
+idx=1;
+plot3(dd(:,1,idx),dd(:,2,idx),dd(:,3,idx),'o')
+text(dd(:,1,idx),dd(:,2,idx),dd(:,3,idx),labels)
+view(3)
+axis equal
+hold on
+plot3(newDD(:,1,idx),newDD(:,2,idx),newDD(:,3,idx),'rx')

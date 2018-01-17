@@ -193,7 +193,9 @@ classdef naiveDistances < markerModel
                 %TODO: for speed, only run if at least one dataPrior is
                 %larger than X mm (ie. if we are certain about ALL markers,
                 %there is nothing to optimize for).
-                mleData(:,:,k)=naiveDistances.invertAndAnchor(this.statMean,data(:,:,k),1./dataPriors(:,k).^2,1./this.statStd.^2); %=invertAndAnchor(ss,anchorFrame,anchorWeights,distanceWeights)
+                %TODO: based on training data, estimate a decent threshold
+                %for the cost function of the reconstruction
+                mleData(:,:,k)=naiveDistances.invertAndAnchor(this.statMean,data(:,:,k),1./dataPriors(:,k),1./this.statStd);
             end
         end
         function mleData=reconstructFast(this,data,missing)
