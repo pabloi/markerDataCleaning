@@ -195,7 +195,11 @@ classdef naiveDistances < markerModel
                 %there is nothing to optimize for).
                 %TODO: based on training data, estimate a decent threshold
                 %for the cost function of the reconstruction
-                mleData(:,:,k)=naiveDistances.invertAndAnchor(this.statMean,data(:,:,k),1./dataPriors(:,k),1./this.statStd);
+                wD=1./this.getRobustStd(.94).^2;
+                wD(wD>1)=1; %Don't trust any distance TOO much
+                wP=1./dataPriors(:,k).^2;
+                %wP(wP>1)=1;
+                mleData(:,:,k)=naiveDistances.invertAndAnchor(this.statMean,data(:,:,k),wP,wD);
             end
         end
         function mleData=reconstructFast(this,data,missing)

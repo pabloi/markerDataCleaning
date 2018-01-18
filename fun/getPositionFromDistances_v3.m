@@ -53,84 +53,108 @@ distWeights=triu(distWeights,1); %Because distances are doubled, I am only honor
 
 end
 
-function [f,g,h]=cost(x,kP,kD,wP,wD)
+function [f,g,h,f1,f2]=cost(x,kP,kD,wP,wD)
     [M,dim]=size(x);
     [N,dim]=size(kP);
     [D1,g1,h1]=pos2Dist(x);  %Can also use pos2Dist2 for quadratic weighing   
     [D2,g2,h2]=pos2Dist(x,kP); %We care only about the diagonal of this
-    f=sum(sum(wD.*abs(D1-kD))) + sum(sum(diag(wP).*D2,1),2);
+    f1=.5*(wD+wD').*abs(D1-kD);
+    f2=diag(wP).*D2;
+    f=sum(sum(f1+f2));
     g=reshape(sum(sum(wD.*sign(D1-kD).*g1,2),1),N*dim,1) + reshape(sum(sum(diag(wP).*g2,1),2),N*dim,1);
     h=reshape(sum(sum(wD.*sign(D1-kD).*h1,2),1),N*dim,N*dim) + reshape(sum(sum(diag(wP).*h2,1),2),N*dim,N*dim);
 end
-function [f,g,h]=cost2(x,kP,kD,wP,wD)
-%Using this doesn't work as expected
-wP=wP.^2;
-wD=wD.^2;
+function [f,g,h,f1,f2]=cost2(x,kP,kD,wP,wD)
     [M,dim]=size(x);
     [N,dim]=size(kP);
+    wD=wD.^2;
+    wP=wP.^2;
     [D1,g1,h1]=pos2Dist2(x);  %Can also use pos2Dist2 for quadratic weighing   
     [D2,g2,h2]=pos2Dist2(x,kP); %We care only about the diagonal of this
-    f=sum(sum(wD.*abs(D1-kD.^2))) + sum(sum(diag(wP).*D2,1),2);
-    g=reshape(sum(sum(wD.*sign(D1-kD).*g1,2),1),N*dim,1) + reshape(sum(sum(diag(wP).*g2,1),2),N*dim,1);
-    h=reshape(sum(sum(wD.*sign(D1-kD).*h1,2),1),N*dim,N*dim) + reshape(sum(sum(diag(wP).*h2,1),2),N*dim,N*dim);
+    f1=.5*(wD+wD').*abs(D1-kD.^2);
+    f2=diag(wP).*D2;
+    f=sum(sum(f1+f2));
+    g=reshape(sum(sum(wD.*sign(D1-kD.^2).*g1,2),1),N*dim,1) + reshape(sum(sum(diag(wP).*g2,1),2),N*dim,1);
+    h=reshape(sum(sum(wD.*sign(D1-kD.^2).*h1,2),1),N*dim,N*dim) + reshape(sum(sum(diag(wP).*h2,1),2),N*dim,N*dim);
 end
 
 function [bestX,bestF,count]=minCost(Y,kD,wP,wD,initGuess)
 if nargin<5 || isempty(initGuess)
     %X=nanmean(Y,1)+randn(size(Y)); %Init guess: this improves convergence
-    X=Y+randn(size(Y));
+    X=Y;
 else
     X=initGuess;
 end
 [f,g,~]=cost(X,Y,kD,wP,wD);
 lambda=.5*f/norm(g)^2;
-if lambda<100
-    lambda=100;
-end
-oldF=f;count=0;bestF=Inf;stuckCounter=0;bestX=X;
-countThreshold=1e5;funThreshold=5;stuckThreshold=10;
+lambda=1e-3;
+oldF=Inf;count=0;bestF=Inf;stuckCounter=0;bestX=X; f=Inf;
+countThreshold=1e5;funThreshold=5;stuckThreshold=200; updateCount=10;
+fh=figure('Units','Normalized','OuterPosition',[0 0 1 1]);
+plot3(Y(:,1),Y(:,2),Y(:,3),'ko','MarkerSize',10)
+hold on
+plot3(X(:,1),X(:,2),X(:,3),'o')
+title(['cost=' num2str(f)])
+
 while f>funThreshold && count<countThreshold && stuckCounter<stuckThreshold
-    X=X-lambda*reshape(g,size(X)); %Simple gradient descent
-    [f,g,~]=cost(X,Y,kD,wP,wD);
+    [f,g,~,f1,f2]=cost(X,Y,kD,wP,wD);
     count=count+1;
-    if mod(count,5e1)==1 %Every 100 steps, update lambda
-        f,lambda,X
+    if mod(count,updateCount)==1 %Every 100 steps, update lambda
         if f>1.01*oldF %Objective function increased noticeably(!) -> reducing lambda
-            lambda=.5*lambda;
-        elseif f>.9*oldF %Decreasing, but not decreasing fast enough
-            lambda=1.05*lambda; %Increasing lambda, in hopes to speed up
+            lambda=.8*lambda;
+            %oldF=f;
+        elseif f>.95*oldF %Decreasing, but not decreasing fast enough
+            lambda=1.1*lambda; %Increasing lambda, in hopes to speed up
             oldF=f;
         else %Decreasing at good rate: doing nothing
             oldF=f;
         end
-        if f<.99*bestF %Found best point so far
-            bestF=f;bestX=X;stuckCounter=0;
-        else
-            stuckCounter=stuckCounter+1
-            %X=bestX+randn(size(X)); %Kick it
-        end
+        %[f,g,~,f1,f2]=cost(X,Y,kD,wP,wD);
+        plot3(bestX(:,1),bestX(:,2),bestX(:,3),'rx')
+        title(['cost=' num2str(f) ',\lambda=' num2str(lambda) ',bestCost=' num2str(bestF) ',stuckCount=' num2str(stuckCounter)])
+        drawnow
+    end   
+    if f<bestF %Found best point so far
+        bestF=f;bestX=X;stuckCounter=0;
+    else
+        stuckCounter=stuckCounter+1;
     end
+    gX=reshape(g,size(X));
+    d=lambda*sum(f1+f2,2);
+    d(d>50)=50; %Never move more than 5 cm
+    %d(d<1)=1; %Never move less than 1mm
+    dX=d.*gX./sqrt(sum(gX.^2,2)); %Decreasing in gradient direction for each marker, but according to its contribution to cost function
+    %dX(abs(dX)>10)=10*sign(dX(abs(dX)>10));
+    X=X-dX;
 end
 %Determining ending criteria:
-if f<funThreshold
+if f<=funThreshold
     bestF=f;   bestX=X;
     disp('Objective function is below threshold')
 elseif count>=countThreshold
     disp('Too many iterations. Stopping.')
 elseif stuckCounter>=stuckThreshold
-    if nargin>=5 %Init guess was given and failed
+    %if nargin>=5 %Init guess was given and failed
         disp('Local minimum found. Stopping.')
-    else %Trying with some other random start
-        disp('Stuck. Trying once more.')
-        prevBF=bestF;
-        prevX=bestX;
-        [bestX,bestF,count]=minCost(Y,kD,wP,wD,nanmean(Y)+.1*std(Y,[],1).*randn(size(Y)));
-        if prevBF<bestF
-            bestX=prevX;
-            bestF=prevBF;
-        end
-    end
+    %else %Trying with some other random start
+    %    disp('Stuck. Trying once more.')
+    %    prevBF=bestF;
+    %    prevX=bestX;
+        %[bestX,bestF,count]=minCost(Y,kD,wP,wD,nanmean(Y)+.1*std(Y,[],1).*randn(size(Y)));
+    %    if prevBF<bestF
+    %        bestX=prevX;
+    %        bestF=prevBF;
+    %    end
+    %end
+else
+    f
+    count
+    stuckCounter
+    dX
 end
+plot3(bestX(:,1),bestX(:,2),bestX(:,3),'kx','MarkerSize',10)
+title(['cost=' num2str(bestF) ',\lambda=' num2str(lambda) ',bestCost=' num2str(bestF) ',stuckCount=' num2str(stuckCounter)])
+drawnow
 end
 
 %% A little script to test cost:

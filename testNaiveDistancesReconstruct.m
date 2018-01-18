@@ -46,7 +46,7 @@ dd=d(:,:,idx);
 %dd(isnan(dd))=mean(dd(~isnan(dd(:,1)),:)); %Marking missing data to arbitrary locations
 dd(isnan(dd))=0;
 posSTD=ones(size(dd,1),size(dd,3));
-posSTD(missing(idx,:)')=1e9; %No idea where those markers are!
+posSTD(missing(idx,:)')=1e3; %No idea where those markers are!
 %%
 newDD=mm.reconstruct(dd,posSTD);
 %%
