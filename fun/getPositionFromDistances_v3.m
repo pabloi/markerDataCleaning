@@ -48,7 +48,10 @@ distWeights=triu(distWeights,1); %Because distances are doubled, I am only honor
 %[f,g,h]=cost(pos,knownPositions,knownDistances,posWeights,distWeights);
 
 %Opt2: do my own:
-[pos,bestF,count]=minCost(knownPositions,knownDistances,posWeights,distWeights);
+%Fast and loose search with an easy environment:
+[bestX,~,~]=minCost(knownPositions,knownDistances,posWeights,distWeights.^.3);
+%Optimality search around prev. solution:
+[pos,bestF,count]=minCost(knownPositions,knownDistances,posWeights,distWeights,bestX);
 
 
 end
@@ -69,39 +72,52 @@ function [f,g,h,f1,f2]=cost2(x,kP,kD,wP,wD)
     [N,dim]=size(kP);
     wD=wD.^2;
     wP=wP.^2;
-    [D1,g1,h1]=pos2Dist2(x);  %Can also use pos2Dist2 for quadratic weighing   
-    [D2,g2,h2]=pos2Dist2(x,kP); %We care only about the diagonal of this
-    f1=.5*(wD+wD').*abs(D1-kD.^2);
-    f2=diag(wP).*D2;
+    %WLOG: normalizing weights so sum(wD(:)+wP(:))=1;
+    %K=N^2*sum(wD(:))+sum(wP(:));
+    %wD=wD/K;
+    %wP=wP/K;
+    [D1,g1,h1]=pos2Dist(x);  %Can also use pos2Dist2 for quadratic weighing   
+    [D2,g2,h2]=pos2Dist(x,kP); %We care only about the diagonal of this
+    f1=.5*(wD+wD').*(D1-kD).^2;
+    f2=diag(wP).*D2.^2;
     f=sum(sum(f1+f2));
-    g=reshape(sum(sum(wD.*sign(D1-kD.^2).*g1,2),1),N*dim,1) + reshape(sum(sum(diag(wP).*g2,1),2),N*dim,1);
-    h=reshape(sum(sum(wD.*sign(D1-kD.^2).*h1,2),1),N*dim,N*dim) + reshape(sum(sum(diag(wP).*h2,1),2),N*dim,N*dim);
+    g=reshape(sum(sum(2*wD.*(D1-kD).*g1,2),1),N*dim,1) + reshape(sum(sum(2*diag(wP).*D2.*g2,1),2),N*dim,1);
+    h=[];
 end
 
 function [bestX,bestF,count]=minCost(Y,kD,wP,wD,initGuess)
 if nargin<5 || isempty(initGuess)
-    %X=nanmean(Y,1)+randn(size(Y)); %Init guess: this improves convergence
     X=Y;
 else
     X=initGuess;
 end
-[f,g,~]=cost(X,Y,kD,wP,wD);
+verbose=true;
+[f,g,~]=cost2(X,Y,kD,wP,wD);
 lambda=.5*f/norm(g)^2;
-lambda=1e-3;
-oldF=Inf;count=0;bestF=Inf;stuckCounter=0;bestX=X; f=Inf;
-countThreshold=1e5;funThreshold=5;stuckThreshold=200; updateCount=10;
+%lambda=1e-3;
+%lambda=.1;
+oldF=Inf;count=0;bestF=Inf;stuckCounter=0;bestX=X; f=Inf; gradTh=1e-1;
+countThreshold=1e5;funThreshold=1e-5;stuckThreshold=100; updateCount=10;
 fh=figure('Units','Normalized','OuterPosition',[0 0 1 1]);
 plot3(Y(:,1),Y(:,2),Y(:,3),'ko','MarkerSize',10)
 hold on
 plot3(X(:,1),X(:,2),X(:,3),'o')
-title(['cost=' num2str(f)])
-
-while f>funThreshold && count<countThreshold && stuckCounter<stuckThreshold
-    [f,g,~,f1,f2]=cost(X,Y,kD,wP,wD);
+axis equal
+view(3)
+gX=-reshape(g,size(X));
+Q=quiver3(X(:,1),X(:,2),X(:,3),gX(:,1),gX(:,2),gX(:,3),0);
+title(['cost=' num2str(f) ',\lambda=' num2str(lambda) ',bestCost=' num2str(bestF) ',stuckCount=' num2str(stuckCounter) ',max |g|=' num2str(max(sqrt(sum(gX.^2))))])      
+while f>funThreshold && count<countThreshold && stuckCounter<stuckThreshold && any(sum(gX.^2,2)>gradTh.^2)
+    [f,g,~,f1,f2]=cost2(X,Y,kD,wP,wD);
     count=count+1;
-    if mod(count,updateCount)==1 %Every 100 steps, update lambda
+    if f<(bestF-.1) %Found best point so far
+        bestF=f;bestX=X;stuckCounter=0;
+    else
+        stuckCounter=stuckCounter+1;
+    end
+    if mod(count,updateCount)==0 %Every 10 steps, update lambda
         if f>1.01*oldF %Objective function increased noticeably(!) -> reducing lambda
-            lambda=.8*lambda;
+            lambda=.5*lambda;
             %oldF=f;
         elseif f>.95*oldF %Decreasing, but not decreasing fast enough
             lambda=1.1*lambda; %Increasing lambda, in hopes to speed up
@@ -109,50 +125,48 @@ while f>funThreshold && count<countThreshold && stuckCounter<stuckThreshold
         else %Decreasing at good rate: doing nothing
             oldF=f;
         end
-        %[f,g,~,f1,f2]=cost(X,Y,kD,wP,wD);
         plot3(bestX(:,1),bestX(:,2),bestX(:,3),'rx')
-        title(['cost=' num2str(f) ',\lambda=' num2str(lambda) ',bestCost=' num2str(bestF) ',stuckCount=' num2str(stuckCounter)])
+        gX=-lambda*reshape(g,size(X));
+        title(['cost=' num2str(f) ',\lambda=' num2str(lambda) ',bestCost=' num2str(bestF) ',stuckCount=' num2str(stuckCounter) ',max |g|=' num2str(max(sqrt(sum(gX.^2))))])      
+        delete(Q)
+        Q=quiver3(X(:,1),X(:,2),X(:,3),gX(:,1),gX(:,2),gX(:,3),0);
         drawnow
     end   
-    if f<bestF %Found best point so far
-        bestF=f;bestX=X;stuckCounter=0;
-    else
-        stuckCounter=stuckCounter+1;
-    end
+    
     gX=reshape(g,size(X));
-    d=lambda*sum(f1+f2,2);
-    d(d>50)=50; %Never move more than 5 cm
-    %d(d<1)=1; %Never move less than 1mm
-    dX=d.*gX./sqrt(sum(gX.^2,2)); %Decreasing in gradient direction for each marker, but according to its contribution to cost function
-    %dX(abs(dX)>10)=10*sign(dX(abs(dX)>10));
+    dX=lambda.*gX;
+    %d=sqrt(sum(dX.^2,2));
+    %th=50;
+    %dX(d>th,:)=dX(d>th,:)*th./d(d>th);
+    %aux=randn(size(dX));
+    %dX(isnan(dX))=aux(isnan(dX));
     X=X-dX;
 end
 %Determining ending criteria:
 if f<=funThreshold
     bestF=f;   bestX=X;
+    if verbose
     disp('Objective function is below threshold')
+    end
 elseif count>=countThreshold
+    if verbose
     disp('Too many iterations. Stopping.')
+    end
 elseif stuckCounter>=stuckThreshold
-    %if nargin>=5 %Init guess was given and failed
-        disp('Local minimum found. Stopping.')
-    %else %Trying with some other random start
-    %    disp('Stuck. Trying once more.')
-    %    prevBF=bestF;
-    %    prevX=bestX;
-        %[bestX,bestF,count]=minCost(Y,kD,wP,wD,nanmean(Y)+.1*std(Y,[],1).*randn(size(Y)));
-    %    if prevBF<bestF
-    %        bestX=prevX;
-    %        bestF=prevBF;
-    %    end
-    %end
-else
+    if verbose
+        disp('We are lost. Stopping.')
+    end
+elseif all(sum(gX.^2,2)<gradTh.^2)
+    if verbose
+        disp('Gradient is below tolerance for all markers')
+    end
+else %Should never happen!
     f
     count
     stuckCounter
     dX
 end
-plot3(bestX(:,1),bestX(:,2),bestX(:,3),'kx','MarkerSize',10)
+plot3(bestX(:,1),bestX(:,2),bestX(:,3),'kx','MarkerSize',10,'LineWidth',4)
 title(['cost=' num2str(bestF) ',\lambda=' num2str(lambda) ',bestCost=' num2str(bestF) ',stuckCount=' num2str(stuckCounter)])
 drawnow
 end
