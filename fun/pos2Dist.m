@@ -11,7 +11,7 @@ function [D,g,h]=pos2Dist(x,y)
     end
     [N,dim]=size(x);
     [M,dim]=size(y);
-    xx=bsxfun(@minus,x,reshape(y',1,dim,M)); %N x dim x M
+    xx=x-permute(y,[3,2,1]);
     xx=permute(xx,[1,3,2]); %NxMxdim
     D=sqrt(sum(xx.^2,3)); %NxM
     if nargout>1 %Computing gradients too
@@ -23,19 +23,27 @@ function [D,g,h]=pos2Dist(x,y)
             gx(:,:,k)=aux;
         end
         g=zeros(N,M,N,dim); %Reshaping to NM x (N.dim) size. Should be sparse?
-        h=zeros(N,M,N,dim,N,dim);
         for i=1:N
-            g(i,:,i,:)=gx(i,:,:);
-            for k=1:dim
-                h(i,:,i,k,i,k)=1; %Any way to make this assignment easier?
-            end
+            g(i,:,i,:)=gx(i,:,:); %Any way to make this faster?
         end
-        h=h-(g.*reshape(g,N,M,1,1,N,dim));
-        h=h./D;
-        if singleInput %distances of x with respect to x, the gradient and hessian are more complicated
+        if nargout>2
             h=zeros(N,M,N,dim,N,dim);
+            for i=1:N
+                for k=1:dim
+                    h(i,:,i,k,i,k)=1; %Any way to make this assignment easier?
+                end
+            end
+            h=h-(g.*reshape(g,N,M,1,1,N,dim));
+            h=h./D;
+        end
+        if singleInput %distances of x with respect to x, the gradient and hessian are more complicated
             for j=1:N
                 g(j,j,:,:)=0; %Diagonal distances are constant=0
+            end
+            g=g+permute(g,[2,1,3,4]);
+            if nargout>2
+                h=zeros(N,M,N,dim,N,dim);
+                for j=1:N
                 for k=1:dim
                     h(j,:,j,k,j,k)=1; %Any way to make this assignment easier?
                     h(:,j,j,k,j,k)=1;
@@ -44,15 +52,13 @@ function [D,g,h]=pos2Dist(x,y)
                         h(i,j,i,k,j,k)=-1;
                     end
                 end
-            end
-            g=g+permute(g,[2,1,3,4]);
-            h=h-(g.*reshape(g,N,M,1,1,N,dim));
-            h=h./D;
-            for j=1:N
-                h(j,j,:,:,:,:)=0;
+                end
+                h=h-(g.*reshape(g,N,M,1,1,N,dim));
+                h=h./D;
+                for j=1:N
+                    h(j,j,:,:,:,:)=0;
+                end
             end
         end
-        
-        %gy=-gx; -> Gradients are opposite to one another if we preserve the shape
     end
 end

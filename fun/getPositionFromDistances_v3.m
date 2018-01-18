@@ -57,7 +57,7 @@ distWeights=triu(distWeights,1); %Because distances are doubled, I am only honor
 end
 
 function [f,g,h,f1,f2]=cost(x,kP,kD,wP,wD)
-    [M,dim]=size(x);
+    %[M,dim]=size(x);
     [N,dim]=size(kP);
     [D1,g1,h1]=pos2Dist(x);  %Can also use pos2Dist2 for quadratic weighing   
     [D2,g2,h2]=pos2Dist(x,kP); %We care only about the diagonal of this
@@ -68,20 +68,20 @@ function [f,g,h,f1,f2]=cost(x,kP,kD,wP,wD)
     h=reshape(sum(sum(wD.*sign(D1-kD).*h1,2),1),N*dim,N*dim) + reshape(sum(sum(diag(wP).*h2,1),2),N*dim,N*dim);
 end
 function [f,g,h,f1,f2]=cost2(x,kP,kD,wP,wD)
-    [M,dim]=size(x);
+    %[M,dim]=size(x);
     [N,dim]=size(kP);
-    wD=wD.^2;
-    wP=wP.^2;
-    %WLOG: normalizing weights so sum(wD(:)+wP(:))=1;
-    %K=N^2*sum(wD(:))+sum(wP(:));
-    %wD=wD/K;
-    %wP=wP/K;
-    [D1,g1,h1]=pos2Dist(x);  %Can also use pos2Dist2 for quadratic weighing   
-    [D2,g2,h2]=pos2Dist(x,kP); %We care only about the diagonal of this
-    f1=.5*(wD+wD').*(D1-kD).^2;
-    f2=diag(wP).*D2.^2;
+    wD=.5*(wD+wD').^2;
+    wP=diag(wP.^2);
+    [D1,g1]=pos2Dist(x);  %Can also use pos2Dist2 for quadratic weighing   
+    [D2,g2]=pos2Dist(x,kP); %We care only about the diagonal of this
+    a1=wD.*(D1-kD);
+    a2=wP.*D2;
+    f1=a1.*(D1-kD);
+    f2=a2.*D2;
+    g1=2*a1.*g1;
+    g2=2*a2.*g2;
     f=sum(sum(f1+f2));
-    g=reshape(sum(sum(2*wD.*(D1-kD).*g1,2),1),N*dim,1) + reshape(sum(sum(2*diag(wP).*D2.*g2,1),2),N*dim,1);
+    g=permute(sum(sum(g1+g2)),[3,4,1,2]);
     h=[];
 end
 
@@ -91,24 +91,24 @@ if nargin<5 || isempty(initGuess)
 else
     X=initGuess;
 end
-verbose=true;
-[f,g,~]=cost2(X,Y,kD,wP,wD);
-lambda=.5*f/norm(g)^2;
-%lambda=1e-3;
-%lambda=.1;
+verbose=false;
+display=false;
+[f,gX,~]=cost2(X,Y,kD,wP,wD);
+lambda=.5*f/norm(gX(:))^2;
 oldF=Inf;count=0;bestF=Inf;stuckCounter=0;bestX=X; f=Inf; gradTh=1e-1;
 countThreshold=1e5;funThreshold=1e-5;stuckThreshold=100; updateCount=10;
-fh=figure('Units','Normalized','OuterPosition',[0 0 1 1]);
-plot3(Y(:,1),Y(:,2),Y(:,3),'ko','MarkerSize',10)
-hold on
-plot3(X(:,1),X(:,2),X(:,3),'o')
-axis equal
-view(3)
-gX=-reshape(g,size(X));
-Q=quiver3(X(:,1),X(:,2),X(:,3),gX(:,1),gX(:,2),gX(:,3),0);
-title(['cost=' num2str(f) ',\lambda=' num2str(lambda) ',bestCost=' num2str(bestF) ',stuckCount=' num2str(stuckCounter) ',max |g|=' num2str(max(sqrt(sum(gX.^2))))])      
+if display
+    fh=figure('Units','Normalized','OuterPosition',[0 0 1 1]);
+    plot3(Y(:,1),Y(:,2),Y(:,3),'ko','MarkerSize',10)
+    hold on
+    plot3(X(:,1),X(:,2),X(:,3),'o')
+    axis equal
+    view(3)
+    Q=quiver3(X(:,1),X(:,2),X(:,3),-gX(:,1),-gX(:,2),-gX(:,3),0);
+    title(['cost=' num2str(f) ',\lambda=' num2str(lambda) ',bestCost=' num2str(bestF) ',stuckCount=' num2str(stuckCounter) ',max |g|=' num2str(max(sqrt(sum(gX.^2))))])      
+end
 while f>funThreshold && count<countThreshold && stuckCounter<stuckThreshold && any(sum(gX.^2,2)>gradTh.^2)
-    [f,g,~,f1,f2]=cost2(X,Y,kD,wP,wD);
+    [f,gX]=cost2(X,Y,kD,wP,wD);
     count=count+1;
     if f<(bestF-.1) %Found best point so far
         bestF=f;bestX=X;stuckCounter=0;
@@ -118,22 +118,19 @@ while f>funThreshold && count<countThreshold && stuckCounter<stuckThreshold && a
     if mod(count,updateCount)==0 %Every 10 steps, update lambda
         if f>1.01*oldF %Objective function increased noticeably(!) -> reducing lambda
             lambda=.5*lambda;
-            %oldF=f;
         elseif f>.95*oldF %Decreasing, but not decreasing fast enough
-            lambda=1.1*lambda; %Increasing lambda, in hopes to speed up
-            oldF=f;
+            lambda=1.1*lambda; oldF=f;%Increasing lambda, in hopes to speed up   
         else %Decreasing at good rate: doing nothing
             oldF=f;
         end
-        plot3(bestX(:,1),bestX(:,2),bestX(:,3),'rx')
-        gX=-lambda*reshape(g,size(X));
-        title(['cost=' num2str(f) ',\lambda=' num2str(lambda) ',bestCost=' num2str(bestF) ',stuckCount=' num2str(stuckCounter) ',max |g|=' num2str(max(sqrt(sum(gX.^2))))])      
-        delete(Q)
-        Q=quiver3(X(:,1),X(:,2),X(:,3),gX(:,1),gX(:,2),gX(:,3),0);
-        drawnow
+        if display
+            plot3(bestX(:,1),bestX(:,2),bestX(:,3),'rx')
+            title(['cost=' num2str(f) ',\lambda=' num2str(lambda) ',bestCost=' num2str(bestF) ',stuckCount=' num2str(stuckCounter) ',max |g|=' num2str(max(sqrt(sum(gX.^2))))])      
+            delete(Q)
+            Q=quiver3(X(:,1),X(:,2),X(:,3),gX(:,1),gX(:,2),gX(:,3),0);
+            drawnow
+        end
     end   
-    
-    gX=reshape(g,size(X));
     dX=lambda.*gX;
     %d=sqrt(sum(dX.^2,2));
     %th=50;
@@ -161,14 +158,13 @@ elseif all(sum(gX.^2,2)<gradTh.^2)
         disp('Gradient is below tolerance for all markers')
     end
 else %Should never happen!
-    f
-    count
-    stuckCounter
-    dX
+    pause
 end
+if display
 plot3(bestX(:,1),bestX(:,2),bestX(:,3),'kx','MarkerSize',10,'LineWidth',4)
 title(['cost=' num2str(bestF) ',\lambda=' num2str(lambda) ',bestCost=' num2str(bestF) ',stuckCount=' num2str(stuckCounter)])
 drawnow
+end
 end
 
 %% A little script to test cost:

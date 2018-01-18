@@ -198,9 +198,20 @@ classdef naiveDistances < markerModel
                 wD=1./this.getRobustStd(.94).^2;
                 wD(wD>1)=1; %Don't trust any distance TOO much
                 wP=1./dataPriors(:,k).^2;
-                %wP(wP>1)=1;
+                wP(wP>1)=1; %Don't trust any position TOO much, leads to bad numerical properties
                 mleData(:,:,k)=naiveDistances.invertAndAnchor(this.statMean,data(:,:,k),wP,wD);
             end
+                            %Validate result:
+%             logLBefore=this.loglikelihood(data);
+%             outlierBefore=this.outlierDetectFast(data);
+%             logLAfter=this.loglikelihood(mleData);
+%             outlierAfter=this.outlierDetectFast(mleData);
+%             if any(outlierAfter & ~outlierBefore) || any((logLAfter<logLBefore) & (logLAfter<-5))
+%                 warning('Reconstruction made some things worse: this is not working.')
+%             end
+%             if any(outlierAfter)
+%                 warning('Reconstruction did not remove all outliers: try reducing confidence in original measurements')
+%             end
         end
         function mleData=reconstructFast(this,data,missing)
             %Similar to reconstruct, but only reconstructs missing markers
