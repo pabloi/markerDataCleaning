@@ -73,15 +73,15 @@ function [f,g,h,f1,f2]=cost2(x,kP,kD,wP,wD)
     wD=.5*(wD+wD').^2;
     wP=diag(wP.^2);
     [D1,g1]=pos2Dist(x);  %Can also use pos2Dist2 for quadratic weighing   
+    g1=reshape(g1,N^2,N*dim);
     [D2,g2]=pos2Dist(x,kP); %We care only about the diagonal of this
+    g2=reshape(g2,N^2,N*dim);
     a1=wD.*(D1-kD);
     a2=wP.*D2;
     f1=a1.*(D1-kD);
     f2=a2.*D2;
-    g1=2*a1.*g1;
-    g2=2*a2.*g2;
-    f=sum(sum(f1+f2));
-    g=permute(sum(sum(g1+g2)),[3,4,1,2]);
+    f=sum(f1(:)+f2(:));
+    g=reshape(2*(a1(:)'*g1+a2(:)'*g2),N,dim);
     h=[];
 end
 

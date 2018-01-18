@@ -2,8 +2,8 @@ function [D,g,h]=pos2Dist(x,y)
     %x is Nxdim
     %y is Mxdim
     %D is NxM matrix containing distances
-    %g is NM x N.dim containing gradient wrt X
-    %h is NM x N.dim x N.dim containing hessian wrt X
+    %g is NxM x Nxdim containing gradient wrt X
+    %h is NxM x Nxdim x Nxdim containing hessian wrt X
     singleInput=false;
     if nargin<2 || isempty(y)
         y=x;
