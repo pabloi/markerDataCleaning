@@ -30,7 +30,7 @@ elseif size(distWeights,1)~=N || size(distWeights,2)~=N
 end
 
 if nargin<5 || isempty(initGuess)
-    initGuess=mean(knownPositions);
+    initGuess=[];
 end
 
 if N1~=N

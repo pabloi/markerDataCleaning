@@ -189,17 +189,21 @@ classdef naiveDistances < markerModel
                %priors=...
                dataPriors=ones(M,N);
             end
+            mleData=nan(size(data));
+            wD=1./this.getRobustStd(.94).^2;
+            wD(wD>1)=1; %Don't trust any distance TOO much
+            lastSol=[];
             for k=1:N
                 %TODO: for speed, only run if at least one dataPrior is
                 %larger than X mm (ie. if we are certain about ALL markers,
                 %there is nothing to optimize for).
                 %TODO: based on training data, estimate a decent threshold
                 %for the cost function of the reconstruction
-                wD=1./this.getRobustStd(.94).^2;
-                wD(wD>1)=1; %Don't trust any distance TOO much
+
                 wP=1./dataPriors(:,k).^2;
                 wP(wP>1)=1; %Don't trust any position TOO much, leads to bad numerical properties
-                mleData(:,:,k)=naiveDistances.invertAndAnchor(this.statMean,data(:,:,k),wP,wD,data(:,:,k-1));
+                lastSol=naiveDistances.invertAndAnchor(this.statMean,data(:,:,k),wP,wD,lastSol);
+                mleData(:,:,k)=lastSol;
             end
                             %Validate result:
 %             logLBefore=this.loglikelihood(data);
