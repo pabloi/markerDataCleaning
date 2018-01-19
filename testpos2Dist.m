@@ -30,7 +30,7 @@ disp(['Max hessian err (%): ' num2str(100*max(abs(h(:)-empH(:))./abs(h(:))))])
 
 %% comparing gradient in self-distance to empirical results
 [d,g,h]=pos2Dist(X);
-[d,g,h]=pos2Dist2(X);
+%[d,g,h]=pos2Dist2(X);
 epsilon=1e-7;
 empG=nan(size(g));
 empH=nan(size(h));
@@ -39,7 +39,7 @@ for i=1:N
         aux=zeros(size(X));
         aux(i,k)=epsilon;
         [d1,g1,h1]=pos2Dist(X+aux);
-        [d1,g1,h1]=pos2Dist2(X+aux);
+        %[d1,g1,h1]=pos2Dist2(X+aux);
         empG(:,:,i,k)=(d1-d)/epsilon;
         empH(:,:,:,:,i,k)=(g1-g)/epsilon;
 

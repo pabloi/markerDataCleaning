@@ -41,7 +41,7 @@ d=permute(data,[2,3,1]);
 mm = naiveDistances.learn(d,labels);
 
 %%
-idx=1:10; %Some frames
+idx=1:500; %Some frames
 dd=d(:,:,idx);
 %Trust in measurments:
 posSTD=1.3*ones(size(dd,1),size(dd,3));
