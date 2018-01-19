@@ -19,15 +19,26 @@ function [D,g,h]=pos2Dist(x,y)
     if nargout>1 %Computing gradients too
         gx=xx./D1; %allowed in R2017a and newer
         g=zeros(N,M,N,dim); %Reshaping to NM x (N.dim) size. Should be sparse?
-        for i=1:N
-            g(i,:,i,:)=gx(i,:,:); %Any way to make this faster?
-            if singleInput
-                gx(i,i,:)=0;
-                g(:,i,i,:)=gx(i,:,:);
-            end
+        g2=zeros(N*N,M*dim);
+        g2(1:N+1:N*N,:)=gx(:,:);
+        g2=reshape(g2,N,N,M,dim);
+        if singleInput
+            g2=reshape(permute(g2,[1,3,2,4]),N*N,N*dim);
+            g2(1:N+1:N*N,:)=gx(:,:);
+            g2=reshape(g2,N*N*N,dim);
+            g2(1:N^2+N+1:N^3,:)=0;
+            g2=reshape(g2,N,N,N,dim);
         end
+
+        %for i=1:N
+        %    g(i,:,i,:)=gx(i,:,:); %Any way to make this faster?
+        %    if singleInput
+        %        gx(i,i,:)=0;
+        %        g(:,i,i,:)=gx(i,:,:);
+        %    end
+        %end
         if nargout>2
-            if ~singleInput 
+            if ~singleInput
                 h=zeros(N,M,N,dim,N,dim);
                 for i=1:N
                     for k=1:dim

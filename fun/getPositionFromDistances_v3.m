@@ -49,7 +49,7 @@ distWeights=triu(distWeights,1); %Because distances are doubled, I am only honor
 
 %Opt2: do my own:
 %Fast and loose search with an easy environment:
-[bestX,~,~]=minCost(knownPositions,knownDistances,posWeights,distWeights.^.3);
+[bestX,~,~]=minCost(knownPositions,knownDistances,posWeights,distWeights.^.3,initGuess);
 %Optimality search around prev. solution:
 [pos,bestF,count]=minCost(knownPositions,knownDistances,posWeights,distWeights,bestX);
 
@@ -59,7 +59,7 @@ end
 function [f,g,h,f1,f2]=cost(x,kP,kD,wP,wD)
     %[M,dim]=size(x);
     [N,dim]=size(kP);
-    [D1,g1,h1]=pos2Dist(x);  %Can also use pos2Dist2 for quadratic weighing   
+    [D1,g1,h1]=pos2Dist(x);  %Can also use pos2Dist2 for quadratic weighing
     [D2,g2,h2]=pos2Dist(x,kP); %We care only about the diagonal of this
     f1=.5*(wD+wD').*abs(D1-kD);
     f2=diag(wP).*D2;
@@ -72,7 +72,7 @@ function [f,g,h,f1,f2]=cost2(x,kP,kD,wP,wD)
     [N,dim]=size(kP);
     wD=.5*(wD+wD').^2;
     wP=diag(wP.^2);
-    [D1,g1]=pos2Dist(x);  %Can also use pos2Dist2 for quadratic weighing   
+    [D1,g1]=pos2Dist(x);  %Can also use pos2Dist2 for quadratic weighing
     g1=reshape(g1,N^2,N*dim);
     [D2,g2]=pos2Dist(x,kP); %We care only about the diagonal of this
     g2=reshape(g2,N^2,N*dim);
@@ -105,7 +105,7 @@ if display
     axis equal
     view(3)
     Q=quiver3(X(:,1),X(:,2),X(:,3),-gX(:,1),-gX(:,2),-gX(:,3),0);
-    title(['cost=' num2str(f) ',\lambda=' num2str(lambda) ',bestCost=' num2str(bestF) ',stuckCount=' num2str(stuckCounter) ',max |g|=' num2str(max(sqrt(sum(gX.^2))))])      
+    title(['cost=' num2str(f) ',\lambda=' num2str(lambda) ',bestCost=' num2str(bestF) ',stuckCount=' num2str(stuckCounter) ',max |g|=' num2str(max(sqrt(sum(gX.^2))))])
 end
 while f>funThreshold && count<countThreshold && stuckCounter<stuckThreshold && any(sum(gX.^2,2)>gradTh.^2)
     [f,gX]=cost2(X,Y,kD,wP,wD);
@@ -119,18 +119,18 @@ while f>funThreshold && count<countThreshold && stuckCounter<stuckThreshold && a
         if f>1.01*oldF %Objective function increased noticeably(!) -> reducing lambda
             lambda=.5*lambda;
         elseif f>.95*oldF %Decreasing, but not decreasing fast enough
-            lambda=1.1*lambda; oldF=f;%Increasing lambda, in hopes to speed up   
+            lambda=1.1*lambda; oldF=f;%Increasing lambda, in hopes to speed up
         else %Decreasing at good rate: doing nothing
             oldF=f;
         end
         if display
             plot3(bestX(:,1),bestX(:,2),bestX(:,3),'rx')
-            title(['cost=' num2str(f) ',\lambda=' num2str(lambda) ',bestCost=' num2str(bestF) ',stuckCount=' num2str(stuckCounter) ',max |g|=' num2str(max(sqrt(sum(gX.^2))))])      
+            title(['cost=' num2str(f) ',\lambda=' num2str(lambda) ',bestCost=' num2str(bestF) ',stuckCount=' num2str(stuckCounter) ',max |g|=' num2str(max(sqrt(sum(gX.^2))))])
             delete(Q)
             Q=quiver3(X(:,1),X(:,2),X(:,3),gX(:,1),gX(:,2),gX(:,3),0);
             drawnow
         end
-    end   
+    end
     dX=lambda.*gX;
     %d=sqrt(sum(dX.^2,2));
     %th=50;
@@ -176,9 +176,9 @@ end
 % kD=randn(N,N);
 % wP=randn(N,1);
 % wD=randn(size(kD));
-% 
+%
 % %% comparing gradient in cross-distance to empirical results
-% 
+%
 % [d,g,h]=cost(X,x2,kD,wP,wD);
 % epsilon=1e-7;
 % empG=nan(N,dim);
@@ -195,7 +195,7 @@ end
 % disp(['Max gradient element: ' num2str(max(abs(g(:))))])
 % disp(['Max gradient err: ' num2str(max(abs(g(:)-empG(:))))])
 % disp(['Max gradient err (%): ' num2str(100*max(abs(g(:)-empG(:))./abs(g(:))))])
-% 
+%
 % disp(['Max hessian element: ' num2str(max(abs(h(:))))])
 % disp(['Max hessian err: ' num2str(max(abs(h(:)-empH(:))))])
 % disp(['Max hessian err (%): ' num2str(100*max(abs(h(:)-empH(:))./abs(h(:))))])

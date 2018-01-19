@@ -1,9 +1,9 @@
 classdef naiveDistances < markerModel
     %summary stats: pair-wise component differences
     %model: independent normals
-    
+
     methods
-        function this = naiveDistances(trainData,labs)    
+        function this = naiveDistances(trainData,labs)
             this=this@markerModel(trainData,labs);
             ss=this.getRobustStd(.94);
             this.activeStats=ss<15 & ss<(this.statMean/2);
@@ -34,7 +34,7 @@ classdef naiveDistances < markerModel
             end
         end
         function fh=seeModel(this)
-           fh=this.seeModel@markerModel; 
+           fh=this.seeModel@markerModel;
            subplot(3,2,[2,4,6])
            hold on
            m=nanmedian(this.trainingData,3);
@@ -59,7 +59,7 @@ classdef naiveDistances < markerModel
                 verbose=true;
             end
             badFlag=false;
-            %Check three things: 
+            %Check three things:
             %1) No marker is closer to a contralateral marker
             %than its ipsilateral counterpart
             %This requires L/R markers to be sorted properly
@@ -72,7 +72,7 @@ classdef naiveDistances < markerModel
             mu3=triu(mu(secondHalf,secondHalf));
             mu4=triu(flipud(mu(firstHalf,secondHalf)));
             D=[mu2<mu1,zeros(size(mu1));zeros(size(mu1)),mu4<mu3] & mu([firstHalf secondHalf],[firstHalf secondHalf])<700; %Using 700mm as a threshold for distances to look at
-            %otherwise we compare something like RPSIS to RTOE and LTOE, which by geometry are almost equally far from RPSIS, and any movement or placement asymmetry will raise an alarm. 
+            %otherwise we compare something like RPSIS to RTOE and LTOE, which by geometry are almost equally far from RPSIS, and any movement or placement asymmetry will raise an alarm.
             %Excluding SHANK and THIGH from this, since markers are not meant to be placed symmetrically
             [bool,idxs] = compareListsNested(this.markerLabels,{'RTHI','LTHI','LTHIGH','RTHIGH','RSHANK','LSHANK','LSHA','RSHA','LSHNK','RSHNK'});
             D(idxs(bool),:)=false;
@@ -103,7 +103,7 @@ classdef naiveDistances < markerModel
             list2=markerLabels(bool);
             if ~all(strcmp(list1,list2))
                 error('Incompatible lists')
-            end   
+            end
             upperBound=upperBound(bool,bool);
             lowerBound=lowerBound(bool,bool);
             reducedMu=mu(idxs(bool),idxs(bool));
@@ -118,13 +118,13 @@ classdef naiveDistances < markerModel
                 end
             %                             [ii,jj]=find(reducedMu<lowerBound | reducedMu>upperBound);
             %                             for i1=1:length(ii)
-            %                                disp(['Mean distance from ' distanceModel.markerLabels{ii(i1)} ' to ' distanceModel.markerLabels{jj(i1)} ' (' num2str(reducedMu(ii(i1),jj(i1)),3) 'mm) exceeds limits [' num2str(lowerBound(ii(i1),jj(i1)),3) ', ' num2str(upperBound(ii(i1),jj(i1)),3) 'mm].']) 
+            %                                disp(['Mean distance from ' distanceModel.markerLabels{ii(i1)} ' to ' distanceModel.markerLabels{jj(i1)} ' (' num2str(reducedMu(ii(i1),jj(i1)),3) 'mm) exceeds limits [' num2str(lowerBound(ii(i1),jj(i1)),3) ', ' num2str(upperBound(ii(i1),jj(i1)),3) 'mm].'])
             %                             end
                 badFlag=true;
                 outOfBoundsOutlier=outMarkers2;
              end
 
-        end        
+        end
         function [permutationList,newModel] = permuteModelLabels(model)
             %Checks if a model is invalid, and if it is, tries to find label
             %permutations that would make it valid.
@@ -175,9 +175,9 @@ classdef naiveDistances < markerModel
                 newModel.trainingData(permutation(i,:),:,:)=newModel.trainingData(fliplr(permutation(i,:)),:,:);
             end
             %Inefficient: re-train
-            newModel = naiveDistances(newModel.trainingData,newModel.markerLabels);    
+            newModel = naiveDistances(newModel.trainingData,newModel.markerLabels);
             %Efficient:...
-        end  
+        end
         function mleData=reconstruct(this,data,dataPriors)
             %INPUTs:
             %this: a model
@@ -185,7 +185,7 @@ classdef naiveDistances < markerModel
             %priors: MxN or Mx1 matrix containing the uncertainty (std) in positions we think we have: assumes spherical uncertainty
             [M,D,N]=size(data);
             if nargin<3 || isempty(dataPriors)
-               %Assume that priors are each marker's score according to this same model 
+               %Assume that priors are each marker's score according to this same model
                %priors=...
                dataPriors=ones(M,N);
             end
@@ -199,7 +199,7 @@ classdef naiveDistances < markerModel
                 wD(wD>1)=1; %Don't trust any distance TOO much
                 wP=1./dataPriors(:,k).^2;
                 wP(wP>1)=1; %Don't trust any position TOO much, leads to bad numerical properties
-                mleData(:,:,k)=naiveDistances.invertAndAnchor(this.statMean,data(:,:,k),wP,wD);
+                mleData(:,:,k)=naiveDistances.invertAndAnchor(this.statMean,data(:,:,k),wP,wD,data(:,:,k-1));
             end
                             %Validate result:
 %             logLBefore=this.loglikelihood(data);
@@ -216,7 +216,7 @@ classdef naiveDistances < markerModel
         function mleData=reconstructFast(this,data,missing)
             %Similar to reconstruct, but only reconstructs missing markers
             %for speed. Think of it as reconstruct, setting dataPriors=0
-            %for 'good' markers (no uncertainty at all) and dataPriors=Inf 
+            %for 'good' markers (no uncertainty at all) and dataPriors=Inf
             %INPUTs:
             %this: a model
             %data: M (markers) x3(dim) xN (frames)
@@ -256,18 +256,18 @@ classdef naiveDistances < markerModel
                     %New benchmark:
                     model=modelAux;
                     [~,mirrorOutliers,outOfBoundsOutlier] = validateMarkerModel(model,false);
-                    nBad=sum(mirrorOutliers | outOfBoundsOutlier); 
+                    nBad=sum(mirrorOutliers | outOfBoundsOutlier);
                     permutationList=[permutationList;listOfPermutations(count,:)]; %Adding permutation to list
                 end
             end
-        end     
+        end
     end
     methods(Static)
         function [ss,g] = summaryStats(data)
            D=computeDistanceMatrix(data);
            ss=naiveDistances.distMatrix2stat(D);
            if nargout>2
-              g=[]; %TODO 
+              g=[]; %TODO
            end
         end
         function this = learn(data,labels,noDisp)
@@ -278,7 +278,7 @@ classdef naiveDistances < markerModel
             if nargin<3 || isempty(noDisp) || ~noDisp
                 this.seeModel()
             end
-            
+
         end
         function mleData=invert(ss)
             mleData=[];%TODO
@@ -290,16 +290,16 @@ classdef naiveDistances < markerModel
            params.R=R;
            params.t=t;
         end
-        function dataFrame=invertAndAnchor(ss,anchorFrame,anchorWeights,distanceWeights)
+        function dataFrame=invertAndAnchor(ss,anchorFrame,anchorWeights,distanceWeights,initGuess)
             knownDistances=naiveDistances.stat2DistMatrix(ss);
             distanceWeights=naiveDistances.stat2DistMatrix(distanceWeights);
-            [dataFrame] = getPositionFromDistances_v3(anchorFrame,knownDistances,anchorWeights,distanceWeights,anchorFrame);
+            [dataFrame] = getPositionFromDistances_v3(anchorFrame,knownDistances,anchorWeights,distanceWeights,initGuess);
         end
         function dataFrame=invertAndAnchorFast(ss,anchorFrame,anchorWeights)
             knownDistances=stat2DistMatrix(ss);
             [dataFrame] = getPositionFromDistances_v2(anchorFrame,knownDistances,anchorWeights,anchorFrame);
         end
-        
+
         function D=stat2DistMatrix(ss)
             %ss is M(M-1)/2 x N
             M=ceil(sqrt(2*size(ss,1)));
@@ -332,4 +332,3 @@ classdef naiveDistances < markerModel
         end
     end
 end
-
