@@ -50,18 +50,20 @@ posSTD=1.3*ones(size(dd,1),size(dd,3));
 dd(isnan(dd))=0;
 posSTD(missing(idx,:)')=1e3; %No idea where those markers are!
 %Marking outliers as untrusted:
-outBefore=mm.outlierDetectFast(dd);
+[outBefore,ll]=mm.outlierDetectFast(dd);
 posSTD(outBefore)=1e3; %No idea where those markers are!
 %%
 newDD=mm.reconstruct(dd,posSTD);
+newDD1=mm.reconstructFast(dd,posSTD);
 outAfter=mm.outlierDetectFast(newDD);
 %%
 figure;
-idx=5;
+idx=294;
 plot3(dd(:,1,idx),dd(:,2,idx),dd(:,3,idx),'o')
 text(dd(:,1,idx),dd(:,2,idx),dd(:,3,idx),labels)
 view(3)
 axis equal
 hold on
-plot3(newDD(:,1,idx),newDD(:,2,idx),newDD(:,3,idx),'kx','MarkerSize',10,'LineWidth',4)
+plot3(newDD(:,1,idx),newDD(:,2,idx),newDD(:,3,idx),'kx','MarkerSize',8,'LineWidth',4)
+plot3(newDD1(:,1,idx),newDD1(:,2,idx),newDD1(:,3,idx),'r*','MarkerSize',6,'LineWidth',4)
 

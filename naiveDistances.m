@@ -217,7 +217,7 @@ classdef naiveDistances < markerModel
 %                 warning('Reconstruction did not remove all outliers: try reducing confidence in original measurements')
 %             end
         end
-        function mleData=reconstructFast(this,data,missing)
+        function mleData=reconstructFast(this,data,dataPriors)
             %Similar to reconstruct, but only reconstructs missing markers
             %for speed. Think of it as reconstruct, setting dataPriors=0
             %for 'good' markers (no uncertainty at all) and dataPriors=Inf
@@ -225,11 +225,15 @@ classdef naiveDistances < markerModel
             %this: a model
             %data: M (markers) x3(dim) xN (frames)
             [M,D,N]=size(data);
+            wD=1./this.getRobustStd(.94).^2;
+            wD(wD>1)=1; %Don't trust any distance TOO much
+            lastSol=[];
             for k=1:N
-                error('Unimplemented')
+                %error('Unimplemented')
                 %Need to find missing markers, and use known markers as
                 %anchor points and unknown ones as the data to reconstruct
-                mleData(:,:,k)=naiveDistances.invertAndAnchorFast(this.statMean,data(:,:,k),1./this.statStd.^2); %=invertAndAnchor(ss,anchorFrame,anchorWeights,distanceWeights)
+                wP=1./dataPriors(:,k).^2;
+                mleData(:,:,k)=naiveDistances.invertAndAnchorFast(this.statMean,data(:,:,k),wP,wD,lastSol); 
             end
         end
     end
@@ -299,7 +303,7 @@ classdef naiveDistances < markerModel
             distanceWeights=naiveDistances.stat2DistMatrix(distanceWeights);
             [dataFrame] = getPositionFromDistances_v3(anchorFrame,knownDistances,anchorWeights,distanceWeights,initGuess);
         end
-        function dataFrame=invertAndAnchorFast(ss,anchorFrame,anchorWeights)
+        function dataFrame=invertAndAnchorFast(ss,anchorFrame,anchorWeights,distanceWeights,initGuess)
             %Option 1:
             %knownDistances=stat2DistMatrix(ss);
             %[dataFrame] = getPositionFromDistances_v2(anchorFrame,knownDistances,anchorWeights,anchorFrame);
@@ -310,7 +314,19 @@ classdef naiveDistances < markerModel
             %Divide markers in certain and uncertain. Certain markers are
             %offered as knownPositions and NOT optimized for.
             %Uncertain markers are optimized for, and have no known positions
-            [dataFrame] = getPositionFromDistances_v3(anchorFrame,knownDistances,anchorWeights,distanceWeights,initGuess);
+            dataFrame=anchorFrame; 
+            fixedMarkers=anchorWeights>=.5 | isnan(anchorWeights) | anchorWeights==Inf; %Arbitrary threshold
+            if any(~fixedMarkers)
+                anchorFrame=anchorFrame(fixedMarkers,:);
+                knownDistances=knownDistances(fixedMarkers,~fixedMarkers);
+                distanceWeights=distanceWeights(fixedMarkers,~fixedMarkers);
+                anchorWeights=anchorWeights(~fixedMarkers);
+            if ~isempty(initGuess)
+                initGuess=initGuess(~fixedMarkers,:);
+            end
+            [aux] = getPositionFromDistances_v3(anchorFrame,knownDistances,zeros(size(anchorWeights)),distanceWeights,initGuess);
+            dataFrame(~fixedMarkers,:)=aux;
+            end
         end
 
         function D=stat2DistMatrix(ss)

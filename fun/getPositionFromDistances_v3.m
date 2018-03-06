@@ -1,5 +1,12 @@
 function [pos] = getPositionFromDistances_v3(knownPositions,knownDistances,posWeights,distWeights,initGuess)
-%v3: many changes
+%This function has two modes: either it estimates pos of the same size as
+%knownPositions, weighing the 'known' part according to 'posWeights'; or it
+%estimates a set pos, different from knownPositions, assumming that
+%knownPositions are exactly known. In the first mode, knownDistances and
+%distWeights must be square, whereas in the second one they are any size.
+%This was probably a bad idea, and would be better to separate the two
+%modes into two different functions.
+
 %pos is the Nx3 matrix that minimizes:
 %sum((posWeights).*(pos-knownPositions)*(pos-knownPositions)')+ .5*sum(sum((distWeights.*abs(d(pos_i,pos_j)-knownDistances)))
 %INPUT:
@@ -15,29 +22,28 @@ function [pos] = getPositionFromDistances_v3(knownPositions,knownDistances,posWe
 
 [N,dim]=size(knownPositions);
 [N1,N2]=size(knownDistances);
-if N~=N1 || N1~=N2
-    error('Dimension mismatch')
+if N~=N1 %|| N1~=N2
+    error('Provided distances dimension mismatch. Check that the number of distances is the same as the numer of known positions')
 end
 noPositionWeighing=false;
 if nargin<3 || isempty(posWeights)
    posWeights= ones(size(knownPositions));
-elseif size(posWeights,1)~=N
+elseif size(posWeights,1)~=N2
     error('Weight dimensions mismatch')
 end
 if nargin<4 || isempty(distWeights)
     distWeights=ones(size(knownDistances)); %Weigh all distances equally
-elseif size(distWeights,1)~=N || size(distWeights,2)~=N
+elseif size(distWeights,1)~=N1 || size(distWeights,2)~=N2
     error('Weight dimensions mismatch')
 end
 
 if nargin<5 || isempty(initGuess)
-    initGuess=[];
+    initGuess=randn(N2,dim);
+elseif size(initGuess,1)~=N2 || size(initGuess,2)~=dim
+error('')
 end
 
-if N1~=N
-    error('Provided distances dimension mismatch. Check that the number of distances is the same as the numer of known positions')
-end
-distWeights=triu(distWeights,1); %Because distances are doubled, I am only honoring the upper half of the distribution
+%distWeights=triu(distWeights,1); %Because distances are doubled, I am only honoring the upper half of the distribution
 
 %Option 1:
 %Use Matlab's optim:
@@ -56,11 +62,9 @@ distWeights=triu(distWeights,1); %Because distances are doubled, I am only honor
 
 
 end
-function [f,g,h]=distanceCost(x,kD,wD,kP)
-%If kP is given, computing all pairwise distance between elements of {kP,x}
-    if nargin>3
-        x=[x;kP];
-    end
+function [f,g,h]=selfDistanceCost(x,kD,wD)
+%TODO: can selfDistanceCost & its gradient be inferred from
+%crossDistance(x,kD,wD,x)?
     [N,dim]=size(x);
     wD=(wD).^2; %NxN
     [D1,g1]=pos2Dist(x);  %Can also use pos2Dist2 for quadratic weighing
@@ -68,6 +72,19 @@ function [f,g,h]=distanceCost(x,kD,wD,kP)
     f1=a1.*(D1-kD); %NxN
     f=sum(f1(:));
     g1=reshape(g1,N^2,N*dim);
+    g=reshape(2*sum(a1(:)'*g1,1),N,dim);
+    h=[];
+end
+function [f,g,h]=crossDistanceCost(x,kD,wD,kP)
+%If kP is given, computing all pairwise distance between elements of {kP,x}
+    [N,dim]=size(x);
+    [M,dim]=size(kP);
+    wD=(wD).^2; %NxN
+    [D1,g1]=pos2Dist(x,kP);  %Can also use pos2Dist2 for quadratic weighing
+    a1=wD.*(D1-kD);
+    f1=a1.*(D1-kD); %MxN
+    f=sum(f1(:));
+    g1=reshape(g1,M*N,N*dim);
     g=reshape(2*sum(a1(:)'*g1,1),N,dim);
     h=[];
     %TODO: compute cost of dist(x,x) and dist(x,kP) and sum them, avoiding
@@ -94,7 +111,7 @@ function [f,g,h,f1,f2]=cost2(x,kP,kD,wP,wD)
 %     g1=reshape(g1,N^2,N*dim);
 %     g=reshape(2*sum(a1(:)'*g1,1),N,dim)+2*(a2.*g2);
 %     h=[];
-[f1,g1,~]=distanceCost(x,kD,wD);
+[f1,g1,~]=selfDistanceCost(x,kD,wD);
 [f2,g2,~]=positionCost(x,kP,wP);
 f=f1+f2;
 g=g1+g2;
@@ -102,7 +119,10 @@ h=[];
 end
 function [f,g,h]=cost2Fixed(x,kP,kD,wD)
     %Same as cost2, but no position weighing (known positions are fixed)
-    [f,g,~]=distanceCost(x,kD,wD,kP);
+    %TODO: this doesn't take into account costs of self-distances being
+    %different from expected (nor are we accepting an input that tells us
+    %what those distances are)
+    [f,g,~]=crossDistanceCost(x,kD,wD,kP);
     h=[];
 end
 function [bestX,bestF,count]=minCost(Y,kD,wP,wD,initGuess)
@@ -165,7 +185,7 @@ while f>funThreshold && count<countThreshold && stuckCounter<stuckThreshold && a
     end
     dX=lambda.*gX;
     %dX(fixedMarkers,:)=0; %No change for fixed markers
-    X=X-dX;
+    X=X-2*dX;
 end
 %Determining ending criteria:
 if f<=funThreshold

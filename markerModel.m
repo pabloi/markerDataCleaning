@@ -61,7 +61,6 @@ classdef markerModel
         end
         
         function [fh]=seeModel(this)
-            
             data=this.trainingData;
                 fh=figure; 
                 c=colormap;
@@ -134,10 +133,11 @@ classdef markerModel
 %                 set(gca,'XTickLabels',l,'XTickLabelRotation',90,'XTick',1:size(s,1),'YTickLabels',l,'YTick',1:size(s,1))
         end
         
-        function outlierMarkers = outlierDetectFast(this,data)
+        function [outlierMarkers,ll] = outlierDetectFast(this,data)
             i=indicatrix(this); %MxP
             %outStats=summaryStats(this,data)<this.statPrctiles(:,2) | s>this.statPrctiles(:,100); %Finding stats in the 1% tails (both) 
-            outStats=this.loglikelihood(data) < -(5^2)/2; %Finding likelihood in 1st percentile
+            ll=this.loglikelihood(data);
+            outStats=ll < -(5^2)/2; %Finding likelihood in 1st percentile
             outlierMarkers=i'\outStats >.1; %This is the correct form, though i*outstats returns comparable results and is sparse
             
         end
