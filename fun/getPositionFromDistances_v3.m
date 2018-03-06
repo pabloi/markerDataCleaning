@@ -58,9 +58,12 @@ distWeights=triu(distWeights,1); %Because distances are doubled, I am only honor
 end
 function [f,g,h]=distanceCost(x,kD,wD,kP)
 %If kP is given, computing all pairwise distance between elements of {kP,x}
-    y=[x;kP];
+    if nargin>3
+        x=[x;kP];
+    end
+    [N,dim]=size(x);
     wD=(wD).^2; %NxN
-    [D1,g1]=pos2Dist(y);  %Can also use pos2Dist2 for quadratic weighing
+    [D1,g1]=pos2Dist(x);  %Can also use pos2Dist2 for quadratic weighing
     a1=wD.*(D1-kD);
     f1=a1.*(D1-kD); %NxN
     f=sum(f1(:));
@@ -161,7 +164,7 @@ while f>funThreshold && count<countThreshold && stuckCounter<stuckThreshold && a
         end
     end
     dX=lambda.*gX;
-    dX(fixedMarkers,:)=0; %No change for fixed markers
+    %dX(fixedMarkers,:)=0; %No change for fixed markers
     X=X-dX;
 end
 %Determining ending criteria:
