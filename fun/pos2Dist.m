@@ -15,8 +15,7 @@ function [D,g,h]=pos2Dist(x,y)
     end
     gx=reshape(x,1,N,dim)-reshape(y,M,1,dim); %MxNxdim
     D=sqrt(sum(gx.^2,3)); %MxN
-    D1=D; %NxN
-    D1(D==0)=1;
+    D1=D+eps; %MxN
     if nargout>1 %Computing gradients too
         g=zeros(M,N*N,dim);
         g(:,1:N+1:N*N,:)=gx./D1;

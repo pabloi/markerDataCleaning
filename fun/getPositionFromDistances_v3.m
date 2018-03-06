@@ -18,13 +18,14 @@ function [pos] = getPositionFromDistances_v3(knownPositions,knownDistances,posWe
 if N~=N1 || N1~=N2
     error('Dimension mismatch')
 end
+noPositionWeighing=false;
 if nargin<3 || isempty(posWeights)
    posWeights= ones(size(knownPositions));
 elseif size(posWeights,1)~=N
     error('Weight dimensions mismatch')
 end
 if nargin<4 || isempty(distWeights)
-    distWeights=ones(size(knownDistances));
+    distWeights=ones(size(knownDistances)); %Weigh all distances equally
 elseif size(distWeights,1)~=N || size(distWeights,2)~=N
     error('Weight dimensions mismatch')
 end
@@ -55,36 +56,52 @@ distWeights=triu(distWeights,1); %Because distances are doubled, I am only honor
 
 
 end
-
-function [f,g,h,f1,f2]=cost(x,kP,kD,wP,wD)
-    %[M,dim]=size(x);
-    [N,dim]=size(kP);
-    [D1,g1,h1]=pos2Dist(x);  %Can also use pos2Dist2 for quadratic weighing
-    [D2,g2,h2]=pos2Dist(x,kP); %We care only about the diagonal of this
-    f1=.5*(wD+wD').*abs(D1-kD);
-    f2=diag(wP).*D2;
-    f=sum(sum(f1+f2));
-    g=reshape(sum(sum(wD.*sign(D1-kD).*g1,2),1),N*dim,1) + reshape(sum(sum(diag(wP).*g2,1),2),N*dim,1);
-    h=reshape(sum(sum(wD.*sign(D1-kD).*h1,2),1),N*dim,N*dim) + reshape(sum(sum(diag(wP).*h2,1),2),N*dim,N*dim);
-end
-function [f,g,h,f1,f2]=cost2(x,kP,kD,wP,wD)
-    %[M,dim]=size(x);
-    [N,dim]=size(kP);
-    wD=.5*(wD+wD').^2;
-    wP=diag(wP.^2);
-    [D1,g1]=pos2Dist(x);  %Can also use pos2Dist2 for quadratic weighing
-    g1=reshape(g1,N^2,N*dim);
-    [D2,g2]=pos2Dist(x,kP); %We care only about the diagonal of this
-    g2=reshape(g2,N^2,N*dim);
+function [f,g,h]=distanceCost(x,kD,wD,kP)
+%If kP is given, computing all pairwise distance between elements of {kP,x}
+    y=[x;kP];
+    wD=(wD).^2; %NxN
+    [D1,g1]=pos2Dist(y);  %Can also use pos2Dist2 for quadratic weighing
     a1=wD.*(D1-kD);
-    a2=wP.*D2;
-    f1=a1.*(D1-kD);
+    f1=a1.*(D1-kD); %NxN
+    f=sum(f1(:));
+    g1=reshape(g1,N^2,N*dim);
+    g=reshape(2*sum(a1(:)'*g1,1),N,dim);
+    h=[];
+    %TODO: compute cost of dist(x,x) and dist(x,kP) and sum them, avoiding
+    %the computation of dist(kP,kP) which is fixed and useless
+end
+function [f,g,h]=positionCost(x,kP,wP)
+    [D2,g2]=pos2DistDiag(x,kP); %Only care about diagonal of this
+    a2=wP.^2.*D2;
     f2=a2.*D2;
-    f=sum(f1(:)+f2(:));
-    g=reshape(2*(a1(:)'*g1+a2(:)'*g2),N,dim);
+    f=sum(f2(:));
+    g=2*(a2.*g2);
     h=[];
 end
-
+function [f,g,h,f1,f2]=cost2(x,kP,kD,wP,wD)
+%     [N,dim]=size(kP);
+%     wD=.5*(wD+wD').^2; %NxN
+%     [D1,g1]=pos2Dist(x);  %Can also use pos2Dist2 for quadratic weighing
+%     [D2,g2]=pos2DistDiag(x,kP); %We care only about the diagonal of this
+%     a1=wD.*(D1-kD);
+%     a2=wP.^2.*D2;
+%     f1=a1.*(D1-kD); %NxN
+%     f2=a2.*D2;
+%     f=sum(f1(:))+sum(f2(:));
+%     g1=reshape(g1,N^2,N*dim);
+%     g=reshape(2*sum(a1(:)'*g1,1),N,dim)+2*(a2.*g2);
+%     h=[];
+[f1,g1,~]=distanceCost(x,kD,wD);
+[f2,g2,~]=positionCost(x,kP,wP);
+f=f1+f2;
+g=g1+g2;
+h=[];
+end
+function [f,g,h]=cost2Fixed(x,kP,kD,wD)
+    %Same as cost2, but no position weighing (known positions are fixed)
+    [f,g,~]=distanceCost(x,kD,wD,kP);
+    h=[];
+end
 function [bestX,bestF,count]=minCost(Y,kD,wP,wD,initGuess)
 if nargin<5 || isempty(initGuess)
     X=Y;
@@ -93,7 +110,15 @@ else
 end
 verbose=false;
 display=false;
-[f,gX,~]=cost2(X,Y,kD,wP,wD);
+noPositionWeighing=false;
+if all(wP==0)
+    noPositionWeighing=true;
+end
+if ~noPositionWeighing
+    [f,gX,~]=cost2(X,Y,kD,wP,wD);
+else
+    [f,gX,~]=cost2Fixed(X,Y,kD,wD);
+end
 lambda=.5*f/norm(gX(:))^2;
 oldF=Inf;count=0;bestF=Inf;stuckCounter=0;bestX=X; f=Inf; gradTh=1e-1;
 countThreshold=1e5;funThreshold=1e-5;stuckThreshold=100; updateCount=10;
@@ -108,7 +133,11 @@ if display
     title(['cost=' num2str(f) ',\lambda=' num2str(lambda) ',bestCost=' num2str(bestF) ',stuckCount=' num2str(stuckCounter) ',max |g|=' num2str(max(sqrt(sum(gX.^2))))])
 end
 while f>funThreshold && count<countThreshold && stuckCounter<stuckThreshold && any(sum(gX.^2,2)>gradTh.^2)
-    [f,gX]=cost2(X,Y,kD,wP,wD);
+    if ~noPositionWeighing
+        [f,gX]=cost2(X,Y,kD,wP,wD);
+    else
+        [f,gX]=cost2Fixed(X,Y,kD,wD);
+    end
     count=count+1;
     if f<(bestF-.1) %Found best point so far
         bestF=f;bestX=X;stuckCounter=0;
@@ -132,11 +161,7 @@ while f>funThreshold && count<countThreshold && stuckCounter<stuckThreshold && a
         end
     end
     dX=lambda.*gX;
-    %d=sqrt(sum(dX.^2,2));
-    %th=50;
-    %dX(d>th,:)=dX(d>th,:)*th./d(d>th);
-    %aux=randn(size(dX));
-    %dX(isnan(dX))=aux(isnan(dX));
+    dX(fixedMarkers,:)=0; %No change for fixed markers
     X=X-dX;
 end
 %Determining ending criteria:
@@ -158,7 +183,8 @@ elseif all(sum(gX.^2,2)<gradTh.^2)
         disp('Gradient is below tolerance for all markers')
     end
 else %Should never happen!
-    pause
+    error('')
+    %pause
 end
 if display
 plot3(bestX(:,1),bestX(:,2),bestX(:,3),'kx','MarkerSize',10,'LineWidth',4)
@@ -166,36 +192,3 @@ title(['cost=' num2str(bestF) ',\lambda=' num2str(lambda) ',bestCost=' num2str(b
 drawnow
 end
 end
-
-%% A little script to test cost:
-% %% Data
-% N=4;
-% dim=3;
-% X=randn(N,dim);
-% x2=randn(N,dim);
-% kD=randn(N,N);
-% wP=randn(N,1);
-% wD=randn(size(kD));
-%
-% %% comparing gradient in cross-distance to empirical results
-%
-% [d,g,h]=cost(X,x2,kD,wP,wD);
-% epsilon=1e-7;
-% empG=nan(N,dim);
-% empH=nan(N,dim,N,dim);
-% for i=1:N
-%     for k=1:dim
-%         aux=zeros(size(X));
-%         aux(i,k)=epsilon;
-%         [d1,g1,h1]=cost(X+aux,x2,kD,wP,wD);
-%         empG(i,k)=(d1-d)/epsilon;
-%         empH(:,:,i,k)=(reshape(g1,N,dim)-reshape(g,N,dim))/epsilon;
-%     end
-% end
-% disp(['Max gradient element: ' num2str(max(abs(g(:))))])
-% disp(['Max gradient err: ' num2str(max(abs(g(:)-empG(:))))])
-% disp(['Max gradient err (%): ' num2str(100*max(abs(g(:)-empG(:))./abs(g(:))))])
-%
-% disp(['Max hessian element: ' num2str(max(abs(h(:))))])
-% disp(['Max hessian err: ' num2str(max(abs(h(:)-empH(:))))])
-% disp(['Max hessian err (%): ' num2str(100*max(abs(h(:)-empH(:))./abs(h(:))))])

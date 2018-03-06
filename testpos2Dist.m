@@ -28,6 +28,31 @@ disp(['Max hessian element: ' num2str(max(abs(h(:))))])
 disp(['Max hessian err: ' num2str(max(abs(h(:)-empH(:))))])
 disp(['Max hessian err (%): ' num2str(100*max(abs(h(:)-empH(:))./abs(h(:))))])
 
+
+%% test pos2DistDiag
+%[d,g,h]=pos2Dist2(X,Y);
+Y=X+randn(size(X));
+[D,g,h]=pos2DistDiag(X,Y);
+epsilon=1e-7;
+empG=nan(size(g));
+empH=nan(size(h));
+for i=1:N
+    for k=1:dim
+        aux=zeros(size(X));
+        aux(i,k)=epsilon;
+        [d1,g1,h1]=pos2DistDiag(X+aux,Y);
+        empG(:,i,k)=(d1-D)/epsilon;
+        empH(:,:,:,i,k)=(g1-g)/epsilon;
+    end
+end
+disp(['Max gradient element: ' num2str(max(abs(g(:))))])
+disp(['Max gradient err: ' num2str(max(abs(g(:)-empG(:))))])
+disp(['Max gradient err (%): ' num2str(100*max(abs(g(:)-empG(:))./abs(g(:))))])
+
+disp(['Max hessian element: ' num2str(max(abs(h(:))))])
+disp(['Max hessian err: ' num2str(max(abs(h(:)-empH(:))))])
+disp(['Max hessian err (%): ' num2str(100*max(abs(h(:)-empH(:))./abs(h(:))))])
+
 %% comparing gradient in self-distance to empirical results
 [D,g,h]=pos2Dist(X);
 %[d,g,h]=pos2Dist2(X);

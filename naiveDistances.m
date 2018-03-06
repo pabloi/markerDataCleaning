@@ -300,8 +300,17 @@ classdef naiveDistances < markerModel
             [dataFrame] = getPositionFromDistances_v3(anchorFrame,knownDistances,anchorWeights,distanceWeights,initGuess);
         end
         function dataFrame=invertAndAnchorFast(ss,anchorFrame,anchorWeights)
-            knownDistances=stat2DistMatrix(ss);
-            [dataFrame] = getPositionFromDistances_v2(anchorFrame,knownDistances,anchorWeights,anchorFrame);
+            %Option 1:
+            %knownDistances=stat2DistMatrix(ss);
+            %[dataFrame] = getPositionFromDistances_v2(anchorFrame,knownDistances,anchorWeights,anchorFrame);
+            %Option 2:
+            knownDistances=naiveDistances.stat2DistMatrix(ss);
+            distanceWeights=naiveDistances.stat2DistMatrix(distanceWeights);
+            %TODO:
+            %Divide markers in certain and uncertain. Certain markers are
+            %offered as knownPositions and NOT optimized for.
+            %Uncertain markers are optimized for, and have no known positions
+            [dataFrame] = getPositionFromDistances_v3(anchorFrame,knownDistances,anchorWeights,distanceWeights,initGuess);
         end
 
         function D=stat2DistMatrix(ss)
