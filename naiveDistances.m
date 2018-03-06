@@ -310,7 +310,6 @@ classdef naiveDistances < markerModel
             %Option 2:
             knownDistances=naiveDistances.stat2DistMatrix(ss);
             distanceWeights=naiveDistances.stat2DistMatrix(distanceWeights);
-            %TODO:
             %Divide markers in certain and uncertain. Certain markers are
             %offered as knownPositions and NOT optimized for.
             %Uncertain markers are optimized for, and have no known positions
@@ -324,6 +323,9 @@ classdef naiveDistances < markerModel
             if ~isempty(initGuess)
                 initGuess=initGuess(~fixedMarkers,:);
             end
+            %TODO: 
+            %Do the optimization one marker at a time. May be slower, but better conditioned.
+            %After optimizing: check that the result is decent (no outlier markers remain)
             [aux] = getPositionFromDistances_v3(anchorFrame,knownDistances,zeros(size(anchorWeights)),distanceWeights,initGuess);
             dataFrame(~fixedMarkers,:)=aux;
             end
