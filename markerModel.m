@@ -133,26 +133,30 @@ classdef markerModel
 %                 set(gca,'XTickLabels',l,'XTickLabelRotation',90,'XTick',1:size(s,1),'YTickLabels',l,'YTick',1:size(s,1))
         end
         
-        function [outlierMarkers,ll] = outlierDetectFast(this,data)
-            i=indicatrix(this); %MxP
-            %outStats=summaryStats(this,data)<this.statPrctiles(:,2) | s>this.statPrctiles(:,100); %Finding stats in the 1% tails (both) 
-            ll=this.loglikelihood(data);
-            outStats=ll < -(5^2)/2; %Finding likelihood in 1st percentile
-            outlierMarkers=i'\outStats >.1; %This is the correct form, though i*outstats returns comparable results and is sparse
-            
-        end
-        
-        function [outlierMarkers,logL] = outlierDetect(this,data,threshold)
+        function [outlierMarkers,markerScores] = outlierDetectFast(this,data,threshold)
             if nargin<3
                 threshold=-5;
             end
-            %One option:
-            %logL=this.scoreMarkers(data);
-            %outlierMarkers=logL<-(threshold)^2/2;
-            %A more efficient one: [for some reason, this is less efficient]
-            logL=this.loglikelihood(data);
-            outStats=logL<(-threshold^2/2);
-            [outlierMarkers]=markerModel.untangleOutliers(outStats,this.indicatrix);         
+            %Works well if there is a single outlier per frame, or if two
+            %or more outliers are present but they don't have tight
+            %distances to any other third marker. Otherwise, problematic.
+            markerScores = scoreMarkersFast(this,data);
+            outlierMarkers=markerScores < -(threshold^2)/2;     %Roughly asking if marker was more than X std away from expectation.     
+        end
+        
+        function [outlierMarkers,markerScores,logL] = outlierDetect(this,data,threshold)
+            if nargin<3
+                threshold=-5;
+            end
+            markerScores=[];
+            logL=[];
+            %One option: find outlier stats and disentangle those
+            %logL=this.loglikelihood(data);
+            %outStats=logL<(-threshold^2/2);
+            %[outlierMarkers]=markerModel.untangleOutliers(outStats,this.indicatrix);     
+            %Another: disentangle likelihoods themselves
+            markerScores = scoreMarkersOpt(this,data);
+            outlierMarkers=markerScores<(-threshold^2/2);
         end
         
         function markerScores = scoreMarkersNaive(this,data)
@@ -189,14 +193,11 @@ classdef markerModel
            end
         end
         function markerScores = scoreMarkersOpt(this,data)
-            i=indicatrix(this); %MxP
-           L=this.loglikelihood(data);
-           markerScores=nan(size(i,1),size(L,2));
-            for j=1:size(L,2)
-               markerScores(:,j)=linprog(ones(18,1),-i',-sqrt(-L(:,j)));
-            end
-            %TODO: same optimization but with Lx norm, x<1
-            %minimize slack over inequalities, instead of 
+           i=indicatrix(this); %MxP
+           markerScores=this.scoreMarkersFast(data);
+           badFrames=sum(this.outlierDetectFast(data))>1; %More than one bad marker per frame
+           L=this.loglikelihood(data(:,:,badFrames));
+           [markerScores(:,badFrames)]=markerModel.untangleLikelihoods(L,i);
         end
         function markerScores = scoreMarkersRanked(this,data,N)
             if nargin<3
@@ -249,46 +250,80 @@ classdef markerModel
             frameScores=nanmean(markerScores,1);
         end
         
-        function [markerScores]=untangleLikelihoods(L,in,refScore,th)
-           %Solve: min 1'*y s.t. y=((p-m)<=0) and L=>i*p
-           [M,P]=size(in);
-           uno=ones(M,1);
-           cero=zeros(M,1);
-           lb=[-Inf*uno; cero];
-           ub=[Inf*uno;uno];
-           K=max(abs(L(:)));
-           f=[-uno/(M*K);uno];
-           opts=optimoptions('intlinprog','Display','off');
-           th=-(th)^2/2;
-           aux=sum(refScore<th);
-           disp(['Running for ' num2str(sum(aux>0)) '/' num2str(length(aux)) ' frames.'])
-           warning('off')
-           markerScores=refScore;
-           for j=1:size(L,2)
-               m=th*uno;
-               if aux(j)>1 %To reduce complexity, only run if ranked scoring shows 2 or more bad markers
-                   %shows at least two outliers
-                   %idx=refScore(:,j)<th;
-                   ll=L(:,j);
-                   p0=in*ll./sum(in,2);
-                   y0=(p0-m)<=0;
-                   %Ineq 1: L >= i'*p;
-                   A1=[in' zeros(P,M)]; b1=ll;
-                   %Ineq 2: y>(mm-p)/K -> -p/K-y < -mm/K
-                   A2=[-eye(M)/K -eye(M)]; b2=-m/K;
-                   %Ineq 3: 1-y >= -(mm-p)/K -> 1+mm/K>= -y+p/K
-                   A3=[eye(M)/K -eye(M)]; b3=uno+m/K;
-                   %Ineq 4: i'*y >= (ll<th) [each outlying stat has at least one outlying marker involved in it]
-                   A4=[zeros(P,M) -in'];     b4=-(ll<th);
-                   %Eq:
-                   Aeq=[];  beq=[];
-                   py=intlinprog(f,[M+1:2*M],[A1;A2;A3;A4],[b1;b2;b3;b4],Aeq,beq,lb,ub,[p0;y0],opts);
-                   if ~isempty(py)
-                    markerScores(:,j)=py(1:M);
-                   end
-               end
-           end
-           warning('on')
+%         function [markerScores]=untangleLikelihoods(L,in,refScore,th)
+%            %Solve: min 1'*y s.t. y=((p-m)<=0) and L=>i*p
+%            [M,P]=size(in);
+%            uno=ones(M,1);
+%            cero=zeros(M,1);
+%            lb=[-Inf*uno; cero];
+%            ub=[Inf*uno;uno];
+%            K=max(abs(L(:)));
+%            f=[-uno/(M*K);uno];
+%            opts=optimoptions('intlinprog','Display','off');
+%            th=-(th)^2/2;
+%            aux=sum(refScore<th);
+%            disp(['Running for ' num2str(sum(aux>0)) '/' num2str(length(aux)) ' frames.'])
+%            warning('off')
+%            markerScores=refScore;
+%            for j=1:size(L,2)
+%                m=th*uno;
+%                if aux(j)>1 %To reduce complexity, only run if ranked scoring shows 2 or more bad markers
+%                    %shows at least two outliers
+%                    %idx=refScore(:,j)<th;
+%                    ll=L(:,j);
+%                    p0=in*ll./sum(in,2);
+%                    y0=(p0-m)<=0;
+%                    %Ineq 1: L >= i'*p;
+%                    A1=[in' zeros(P,M)]; b1=ll;
+%                    %Ineq 2: y>(mm-p)/K -> -p/K-y < -mm/K
+%                    A2=[-eye(M)/K -eye(M)]; b2=-m/K;
+%                    %Ineq 3: 1-y >= -(mm-p)/K -> 1+mm/K>= -y+p/K
+%                    A3=[eye(M)/K -eye(M)]; b3=uno+m/K;
+%                    %Ineq 4: i'*y >= (ll<th) [each outlying stat has at least one outlying marker involved in it]
+%                    A4=[zeros(P,M) -in'];     b4=-(ll<th);
+%                    %Eq:
+%                    Aeq=[];  beq=[];
+%                    py=intlinprog(f,[M+1:2*M],[A1;A2;A3;A4],[b1;b2;b3;b4],Aeq,beq,lb,ub,[p0;y0],opts);
+%                    if ~isempty(py)
+%                     markerScores(:,j)=py(1:M);
+%                    end
+%                end
+%            end
+%            warning('on')
+%         end
+        function [markerScores]=untangleLikelihoods(L,indicatrix)
+            A=-indicatrix';
+            options = optimoptions('fmincon','Display','off');
+            options2 = optimoptions('linprog','Display','off');
+            LB=zeros(size(indicatrix,1),1);
+            f=ones(size(indicatrix,1),1);
+            markerScores=nan(size(indicatrix,1),size(L,2));
+            for j=1:size(L,2)
+j
+               b=-sqrt(-2*L(:,j)); %transform likelihood to std away from expectation
+               %LB2=-i'.*b;
+               %LB2(LB2==0)=Inf;
+               %LB2=min(LB2);
+               LB2=LB;
+               %Get linear programming solution:
+               [x0,~,~,~,lam]=linprog(f,A,b,[],[],LB2,[],options2);
+                %f'*x0
+               %Sparsify solution: (for each active constraint, selecting the most
+               %unequal solution possible, notice this maintains the cost
+               %f'*x constant, but may violate the A*x<=b constraints)
+               A1=-A(lam.ineqlin==1,:);
+               idx=any(A1~=0); %For each marker there is at least 1 active inequality, or one of the bounds was reached
+               A2=A1(:,idx);
+               aux=fmincon(@(x) -sum(x.^2),x0(idx),A2,A2*x0(idx),[],[],LB2(idx),[],[],options);
+               x0(idx)=aux;
+               %f'*x0
+               %Re-run linprog to assure that constraints are met: This
+               %doesn't preserve f'*x because of the additional lower bound
+               %constraints
+               [x1]=linprog(f,A,b,[],[],x0,[],options2);
+               %f'*x1
+               markerScores(:,j)=-.5*x1.^2;
+            end
         end
         
         function [outMarkers]=untangleOutliers(outStats,in) %Single frame: L is vector
@@ -321,7 +356,7 @@ classdef markerModel
                 end
             end
         end
-        
+
     end
 end
 
