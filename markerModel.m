@@ -188,7 +188,16 @@ classdef markerModel
                markerScores(j,:)=median(L(i(j,:)==1,:));
            end
         end
-        
+        function markerScores = scoreMarkersOpt(this,data)
+            i=indicatrix(this); %MxP
+           L=this.loglikelihood(data);
+           markerScores=nan(size(i,1),size(L,2));
+            for j=1:size(L,2)
+               markerScores(:,j)=linprog(ones(18,1),-i',-sqrt(-L(:,j)));
+            end
+            %TODO: same optimization but with Lx norm, x<1
+            %minimize slack over inequalities, instead of 
+        end
         function markerScores = scoreMarkersRanked(this,data,N)
             if nargin<3
                 N=2; %Using third-worse score
@@ -198,9 +207,10 @@ classdef markerModel
            i=indicatrix(this); %MxP
            if N>1
                markerScores=nan(size(i,1),size(L,2));
-               for j=1:size(i,1)
+               for j=1:size(i,1) %Each marker
                    aux=sort(L(i(j,:)==1,:),1);
-                   markerScores(j,:)=aux(N,:);
+                   NN=min(N,size(aux,1));
+                   markerScores(j,:)=aux(NN,:);
                end
             else
                 markerScores=squeeze(min(i.*reshape(L,1,P,Nn),[],2));

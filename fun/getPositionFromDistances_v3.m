@@ -25,7 +25,6 @@ function [pos] = getPositionFromDistances_v3(knownPositions,knownDistances,posWe
 if N~=N1 %|| N1~=N2
     error('Provided distances dimension mismatch. Check that the number of distances is the same as the numer of known positions')
 end
-noPositionWeighing=false;
 if nargin<3 || isempty(posWeights)
    posWeights= ones(size(knownPositions));
 elseif size(posWeights,1)~=N2
@@ -126,6 +125,8 @@ function [f,g,h]=cost2Fixed(x,kP,kD,wD)
     h=[];
 end
 function [bestX,bestF,count]=minCost(Y,kD,wP,wD,initGuess)
+fixedMarkers=wP==Inf | isnan(wP);
+wP(fixedMarkers)=0; %To avoid nan/inf on cost function
 if nargin<5 || isempty(initGuess)
     X=Y;
 else
@@ -184,7 +185,7 @@ while f>funThreshold && count<countThreshold && stuckCounter<stuckThreshold && a
         end
     end
     dX=lambda.*gX;
-    %dX(fixedMarkers,:)=0; %No change for fixed markers
+    dX(fixedMarkers,:)=0; %No change for fixed markers
     X=X-2*dX;
 end
 %Determining ending criteria:
