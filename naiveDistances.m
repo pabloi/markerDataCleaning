@@ -137,7 +137,6 @@ classdef naiveDistances < markerModel
                 error('Too many possible permutations, search is not feasible')
             end
 
-
             %First try with permutations of markers marked as bad:
             permutationList=nan(0,2);
             if nBad>1 && any(mirrorOutliers)
@@ -229,7 +228,6 @@ classdef naiveDistances < markerModel
             wD(wD>1)=1; %Don't trust any distance TOO much
             lastSol=[];
             for k=1:N
-                %error('Unimplemented')
                 %Need to find missing markers, and use known markers as
                 %anchor points and unknown ones as the data to reconstruct
                 wP=1./dataPriors(:,k).^2;
