@@ -195,9 +195,14 @@ classdef markerModel
         function markerScores = scoreMarkersOpt(this,data)
            i=indicatrix(this); %MxP
            markerScores=this.scoreMarkersFast(data);
-           badFrames=sum(this.outlierDetectFast(data))>1; %More than one bad marker per frame
+           outMarkers=this.outlierDetectFast(data);
+           badFrames=sum(outMarkers)>1; %More than one bad marker per frame
            L=this.loglikelihood(data(:,:,badFrames));
-           [markerScores(:,badFrames)]=markerModel.untangleLikelihoods(L,i);
+           badMarkers=any(outMarkers(:,badFrames),2); %This may only be useful on not too long trials (otherwise every marker will possibly be a part of at least one bad frame, and all markers will get selected)
+           badMarkers=true(size(badMarkers));
+           in=i(badMarkers,:); %Indicatrix of bad markers only
+           activeConstraints=any(in,1);
+           [markerScores(badMarkers,badFrames)]=markerModel.untangleLikelihoods(L(activeConstraints,:),in(:,activeConstraints));
         end
         function markerScores = scoreMarkersRanked(this,data,N)
             if nargin<3
@@ -293,37 +298,32 @@ classdef markerModel
 %         end
         function [markerScores]=untangleLikelihoods(L,indicatrix)
             A=-indicatrix';
-            options = optimoptions('fmincon','Display','off');
+            options = optimoptions('fmincon','Display','off','SpecifyObjectiveGradient',false,'OptimalityTolerance',1e-1,'StepTolerance',1e-1,'ConstraintTolerance',1e-1); %Relax tolerances for fast compute
             options2 = optimoptions('linprog','Display','off');
-            LB=zeros(size(indicatrix,1),1);
-            f=ones(size(indicatrix,1),1);
-            markerScores=nan(size(indicatrix,1),size(L,2));
-            for j=1:size(L,2)
-j
+            N=size(indicatrix,1);
+            LB=zeros(N,1);
+            f=ones(N,1);
+            M=size(L,2); %number of frames
+            markerScores=nan(N,M);
+            display(['Running for ' num2str(M) ' frames. Expect ' num2str(M/75,2) ' sec. processing time (75 fps).'])
+            tic
+            for j=1:M
                b=-sqrt(-2*L(:,j)); %transform likelihood to std away from expectation
-               %LB2=-i'.*b;
-               %LB2(LB2==0)=Inf;
-               %LB2=min(LB2);
-               LB2=LB;
                %Get linear programming solution:
-               [x0,~,~,~,lam]=linprog(f,A,b,[],[],LB2,[],options2);
-                %f'*x0
+               [x0,~,~,~,lam]=linprog(f,A,b,[],[],LB,[],options2); %Being used to identify active inequalities only
+               %f'*x0
                %Sparsify solution: (for each active constraint, selecting the most
-               %unequal solution possible, notice this maintains the cost
-               %f'*x constant, but may violate the A*x<=b constraints)
-               A1=-A(lam.ineqlin==1,:);
+               %unequal solution possible, notice this maintains the cost f'*x constant)
+               activeConstraints=(lam.ineqlin==1);
+               A1=-A(activeConstraints,:); %Active inequalities
                idx=any(A1~=0); %For each marker there is at least 1 active inequality, or one of the bounds was reached
                A2=A1(:,idx);
-               aux=fmincon(@(x) -sum(x.^2),x0(idx),A2,A2*x0(idx),[],[],LB2(idx),[],[],options);
+               aux=fmincon(@(x) [-sum(x.^2)],x0(idx),A(~activeConstraints,idx),b(~activeConstraints),A2,A2*x0(idx),LB(idx),[],[],options);  %Notice this adds as constraint that active inequalities from linprog are maintained
                x0(idx)=aux;
-               %f'*x0
-               %Re-run linprog to assure that constraints are met: This
-               %doesn't preserve f'*x because of the additional lower bound
-               %constraints
-               [x1]=linprog(f,A,b,[],[],x0,[],options2);
-               %f'*x1
-               markerScores(:,j)=-.5*x1.^2;
+               markerScores(:,j)=-.5*x0.^2;
+               %f'*x0 %Check that this was maintained
             end
+            toc
         end
         
         function [outMarkers]=untangleOutliers(outStats,in) %Single frame: L is vector
