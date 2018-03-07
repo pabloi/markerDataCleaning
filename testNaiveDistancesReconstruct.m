@@ -50,15 +50,32 @@ posSTD=1.3*ones(size(dd,1),size(dd,3));
 dd(isnan(dd))=0;
 posSTD(missing(idx,:)')=1e3; %No idea where those markers are!
 %Marking outliers as untrusted:
-[outBefore,ll]=mm.outlierDetectFast(dd);
+[outBefore,score]=mm.outlierDetect(dd);
 posSTD(outBefore)=1e3; %No idea where those markers are!
-%%
+%% Reconstruct:
+tic
 newDD=mm.reconstruct(dd,posSTD);
+toc
+tic
 newDD1=mm.reconstructFast(dd,posSTD);
-outAfter=mm.outlierDetectFast(newDD);
+toc
+%% New outliers:
+outAfter=mm.outlierDetect(newDD);
+sum(outAfter(:))
+outAfter1=mm.outlierDetect(newDD1);
+sum(outAfter1(:))
+%% Reconstructing recursively changes things, and there appears to be randomness to reconstruct:
+posSTD=1.3*ones(size(dd,1),size(dd,3));
+posSTD(outAfter)=1e3; 
+tic
+newDD2=newDD;
+newDD2(:,:,any(outAfter,1))=mm.reconstruct(newDD(:,:,any(outAfter,1)),posSTD(:,any(outAfter,1)));
+toc
+outAfter2=mm.outlierDetect(newDD2);
+sum(outAfter2(:))
 %%
 figure;
-idx=294;
+idx=295;
 plot3(dd(:,1,idx),dd(:,2,idx),dd(:,3,idx),'o')
 text(dd(:,1,idx),dd(:,2,idx),dd(:,3,idx),labels)
 view(3)
