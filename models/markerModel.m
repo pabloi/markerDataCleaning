@@ -25,17 +25,16 @@ classdef markerModel
             mm.trainingLogLPrctiles=prctile(mm.loglikelihood(trainData),0:100,2);
             mm.activeStats=true(size(mm.statMean));
         end
-        
         function M = get.Nmarkers(this)
             M=size(this.trainingData,1);
         end
         function mu = get.statMedian(this)
             mu=this.statPrctiles(:,51);
         end
-        
-        logL = loglikelihood(this,data) %Returns PxN
+        [logL,g] = loglikelihood(this,data) %Returns PxN likelihood and gradient
         i = indicatrix(this)
-        
+        mapData = reconstruct(this,dataPrior,priorConfidence)
+        [badFlag,outlierClass1,outlierClass2] = validateMarkerModel(this,verbose)
         function s = getRobustStd(this,CI)
            %Uses the central confidence interval CI to estimate the std of the distribution
            %assuming the central part is normally distributed 
@@ -59,7 +58,6 @@ classdef markerModel
            Nsigma=2*erfinv(CI)*sqrt(2); %For the classical 0.95 value, this is 2*1.96 sigma, asumming central CI again
            s=(pu-pl)/Nsigma;
         end
-        
         function [fh]=seeModel(this)
             data=this.trainingData;
                 fh=figure; 
@@ -132,7 +130,6 @@ classdef markerModel
 %                 axis tight
 %                 set(gca,'XTickLabels',l,'XTickLabelRotation',90,'XTick',1:size(s,1),'YTickLabels',l,'YTick',1:size(s,1))
         end
-        
         function [outlierMarkers,markerScores] = outlierDetectFast(this,data,threshold)
             if nargin<3
                 threshold=-5;
@@ -143,10 +140,12 @@ classdef markerModel
             markerScores = scoreMarkersFast(this,data);
             outlierMarkers=markerScores < -(threshold^2)/2;     %Roughly asking if marker was more than X std away from expectation.     
         end
-        
-        function [outlierMarkers,markerScores,logL] = outlierDetect(this,data,threshold)
-            if nargin<3
+        function [outlierMarkers,markerScores,logL] = outlierDetect(this,data,threshold,fastFlag)
+            if nargin<3 || isempty(threshold)
                 threshold=-5;
+            end
+            if nargin<4 || isempty(fastFlag)
+                fastFlag=false;
             end
             markerScores=[];
             logL=[];
@@ -154,45 +153,19 @@ classdef markerModel
             %logL=this.loglikelihood(data);
             %outStats=logL<(-threshold^2/2);
             %[outlierMarkers]=markerModel.untangleOutliers(outStats,this.indicatrix);     
-            %Another: disentangle likelihoods themselves
-            markerScores = scoreMarkersOpt(this,data);
+            %Another: disentangle likelihoods themselves & then detect
+            markerScores = scoreMarkers(this,data,fastFlag);
             outlierMarkers=markerScores<(-threshold^2/2);
         end
-        
-        function markerScores = scoreMarkersNaive(this,data)
-           nn=isnan(data);
-           L=loglikelihood(this,data); %PxN
-           i=indicatrix(this);
-           L(isnan(L))=0; %Is this the value to use? Should we use the mean from training instead?
-           markerScores= (i * L)./sum(i,2);
-           markerScores(squeeze(any(nn,2)))=NaN;
-        end
-        
-        function markerScores = scoreMarkersFast(this,data)
-           markerScores = scoreMarkersRanked(this,data,2);
-        end
-        
-        function markerScores = scoreMarkers(this,data)
-            %This works so-so. It does resolve markers that appear bad only
-            %because another was bad, but is too optimistic about the
-            %likelihood of those non-bad markers.
-           L=loglikelihood(this,data); %PxN
-           L(isnan(L))=0; %Is this the value to use? Should we use the mean from training instead?
-           in=indicatrix(this); %MxP
-           refScore=this.scoreMarkersRanked(data,2);
-           th=-4;
-           markerScores=markerModel.untangleLikelihoods(L,in,refScore,th);
-        end
-        
-        function markerScores = scoreMarkersMedian(this,data)
-           i=indicatrix(this); %MxP
-           L=this.loglikelihood(data);
-           markerScores=nan(size(i,1),size(L,2));
-           for j=1:size(i,1)
-               markerScores(j,:)=median(L(i(j,:)==1,:));
+        function markerScores = scoreMarkers(this,data,fastFlag)
+           if nargin<3 || isempty(fastFlag)
+                fastFlag=false;
            end
-        end
-        function markerScores = scoreMarkersOpt(this,data)
+           markerScores=this.scoreMarkersRanked(data,2); %Fast scoring
+           %This fast scoring works well if only one outlier marker is
+           %present, or if two or more non-adjacent (ie. no strong distance
+           %constraints) markers are present. Otherwise problematic.
+            if ~fastFlag %Improve scoring for complex situations
            i=indicatrix(this); %MxP
            markerScores=this.scoreMarkersFast(data);
            outMarkers=this.outlierDetectFast(data);
@@ -203,10 +176,15 @@ classdef markerModel
            in=i(badMarkers,:); %Indicatrix of bad markers only
            activeConstraints=any(in,1);
            [markerScores(badMarkers,badFrames)]=markerModel.untangleLikelihoods(L(activeConstraints,:),in(:,activeConstraints));
+            else
+
+            end
         end
+    end
+    methods(Hidden)
         function markerScores = scoreMarkersRanked(this,data,N)
             if nargin<3
-                N=2; %Using third-worse score
+                N=2; %Using second-worse score
             end
            L=loglikelihood(this,data); %PxN
            [P,Nn]=size(L);
@@ -222,26 +200,12 @@ classdef markerModel
                 markerScores=squeeze(min(i.*reshape(L,1,P,Nn),[],2));
            end
         end
-        
-        mapData = reconstruct(this,data,priors)
     end
-    
     methods(Static)
         model = learn(data)
-        
         [ss,g] = summaryStats(data) %Returns PxN summary stats, and P x 3M x N gradient 
-        %gradient can be P x 3M if it is the same for all frames, as is the case in linear models
-                
-        mleData=invert(ss) %returns global (but possibly non-unique) MLE estimator of
-        
-        [dataFrame,params]=invertAndAnchor(ss,anchorFrame,anchorWeights) 
-        %This is offered on top of anchor alone because for some models it 
-        %may be optimal to do both things together rather than in stages
-        
-        [dataFrame,params]=anchor(ss,anchorFrame,anchorWeights)
-        
+        %gradient can be P x 3M if it is the same for all frames, as is the case in linear models       
         [M,xl,yl]=stat2Matrix(stats)
-        
         function lL=normalLogL(values,means,stds)
             %values is PxN, means and stds are Px1
             %Returns PxN likelihood of value under each normal
@@ -250,52 +214,9 @@ classdef markerModel
             %lL=-sqrt(2*d); %Mahalanobis distance
             %.9189 = log(2*pi)/2
         end
-        
         function frameScores=marker2frameScoresNaive(markerScores)
             frameScores=nanmean(markerScores,1);
         end
-        
-%         function [markerScores]=untangleLikelihoods(L,in,refScore,th)
-%            %Solve: min 1'*y s.t. y=((p-m)<=0) and L=>i*p
-%            [M,P]=size(in);
-%            uno=ones(M,1);
-%            cero=zeros(M,1);
-%            lb=[-Inf*uno; cero];
-%            ub=[Inf*uno;uno];
-%            K=max(abs(L(:)));
-%            f=[-uno/(M*K);uno];
-%            opts=optimoptions('intlinprog','Display','off');
-%            th=-(th)^2/2;
-%            aux=sum(refScore<th);
-%            disp(['Running for ' num2str(sum(aux>0)) '/' num2str(length(aux)) ' frames.'])
-%            warning('off')
-%            markerScores=refScore;
-%            for j=1:size(L,2)
-%                m=th*uno;
-%                if aux(j)>1 %To reduce complexity, only run if ranked scoring shows 2 or more bad markers
-%                    %shows at least two outliers
-%                    %idx=refScore(:,j)<th;
-%                    ll=L(:,j);
-%                    p0=in*ll./sum(in,2);
-%                    y0=(p0-m)<=0;
-%                    %Ineq 1: L >= i'*p;
-%                    A1=[in' zeros(P,M)]; b1=ll;
-%                    %Ineq 2: y>(mm-p)/K -> -p/K-y < -mm/K
-%                    A2=[-eye(M)/K -eye(M)]; b2=-m/K;
-%                    %Ineq 3: 1-y >= -(mm-p)/K -> 1+mm/K>= -y+p/K
-%                    A3=[eye(M)/K -eye(M)]; b3=uno+m/K;
-%                    %Ineq 4: i'*y >= (ll<th) [each outlying stat has at least one outlying marker involved in it]
-%                    A4=[zeros(P,M) -in'];     b4=-(ll<th);
-%                    %Eq:
-%                    Aeq=[];  beq=[];
-%                    py=intlinprog(f,[M+1:2*M],[A1;A2;A3;A4],[b1;b2;b3;b4],Aeq,beq,lb,ub,[p0;y0],opts);
-%                    if ~isempty(py)
-%                     markerScores(:,j)=py(1:M);
-%                    end
-%                end
-%            end
-%            warning('on')
-%         end
         function [markerScores]=untangleLikelihoods(L,indicatrix)
             A=-indicatrix';
             options = optimoptions('fmincon','Display','off','SpecifyObjectiveGradient',false,'OptimalityTolerance',1e-1,'StepTolerance',1e-1,'ConstraintTolerance',1e-1); %Relax tolerances for fast compute
@@ -324,8 +245,7 @@ classdef markerModel
                %f'*x0 %Check that this was maintained
             end
             toc
-        end
-        
+        end        
         function [outMarkers]=untangleOutliers(outStats,in) %Single frame: L is vector
             %Solve: min 1'*y s.t. L<=i'*y and y>=(i*L -1'*y), where L = outlier stats for marker
             %This means we find the minimum outlier set, such that each

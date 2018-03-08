@@ -8,7 +8,7 @@ classdef naiveDistances < markerModel
             ss=this.getRobustStd(.94);
             this.activeStats=ss<15 & ss<(this.statMean/2);
         end
-        function logL = loglikelihood(this,data)
+        function [logL,g] = loglikelihood(this,data)
             ss=this.summaryStats(data);
             %sigma=this.statStd;
             sigma=this.getRobustStd(.94);
@@ -18,6 +18,7 @@ classdef naiveDistances < markerModel
             logL(~this.activeStats,:)=0;
             logL=logL(this.activeStats,:);
             logL(isnan(logL))=0;
+            g=[];
         end
         function i = indicatrix(this,fullFlag) %MxP
             M=this.Nmarkers;
@@ -177,7 +178,7 @@ classdef naiveDistances < markerModel
             newModel = naiveDistances(newModel.trainingData,newModel.markerLabels);
             %Efficient:...
         end
-        function mleData=reconstruct(this,data,dataPriors)
+        function mleData=reconstruct(this,data,dataPriors,fastFlag)
             %INPUTs:
             %this: a model
             %data: M (markers) x3(dim) xN (frames)
@@ -187,6 +188,9 @@ classdef naiveDistances < markerModel
                %Assume that priors are each marker's score according to this same model
                %priors=...
                dataPriors=ones(M,N);
+            end
+            if nargin<4 || isempty(fastFlag)
+                fastFlag=false;
             end
             mleData=nan(size(data));
             wD=1./this.getRobustStd(.94).^2;
@@ -201,7 +205,11 @@ classdef naiveDistances < markerModel
 
                 wP=1./dataPriors(:,k).^2;
                 wP(wP>1)=1; %Don't trust any position TOO much, leads to bad numerical properties
-                lastSol=naiveDistances.invertAndAnchor(this.statMean,data(:,:,k),wP,wD,lastSol);
+                if ~fastFlag
+                    lastSol=naiveDistances.invertAndAnchor(this.statMean,data(:,:,k),wP,wD,lastSol);
+                else
+                    lastSol=naiveDistances.invertAndAnchorFast(this.statMean,data(:,:,k),wP,wD,lastSol);
+                end
                 mleData(:,:,k)=lastSol;
             end
                             %Validate result:
@@ -215,24 +223,6 @@ classdef naiveDistances < markerModel
 %             if any(outlierAfter)
 %                 warning('Reconstruction did not remove all outliers: try reducing confidence in original measurements')
 %             end
-        end
-        function mleData=reconstructFast(this,data,dataPriors)
-            %Similar to reconstruct, but only reconstructs missing markers
-            %for speed. Think of it as reconstruct, setting dataPriors=0
-            %for 'good' markers (no uncertainty at all) and dataPriors=Inf
-            %INPUTs:
-            %this: a model
-            %data: M (markers) x3(dim) xN (frames)
-            [M,D,N]=size(data);
-            wD=1./this.getRobustStd(.94).^2;
-            wD(wD>1)=1; %Don't trust any distance TOO much
-            lastSol=[];
-            for k=1:N
-                %Need to find missing markers, and use known markers as
-                %anchor points and unknown ones as the data to reconstruct
-                wP=1./dataPriors(:,k).^2;
-                mleData(:,:,k)=naiveDistances.invertAndAnchorFast(this.statMean,data(:,:,k),wP,wD,lastSol); 
-            end
         end
     end
     methods(Hidden)
@@ -267,35 +257,6 @@ classdef naiveDistances < markerModel
                 end
             end
         end
-    end
-    methods(Static)
-        function [ss,g] = summaryStats(data)
-           D=computeDistanceMatrix(data);
-           ss=naiveDistances.distMatrix2stat(D);
-           if nargout>2
-              g=[]; %TODO
-           end
-        end
-        function this = learn(data,labels,noDisp)
-            if nargin<2
-                labels={};
-            end
-            this=naiveDistances(data,labels);
-            if nargin<3 || isempty(noDisp) || ~noDisp
-                this.seeModel()
-            end
-
-        end
-        function mleData=invert(ss)
-            mleData=[];%TODO
-        end
-        function [newDataFrame,params]=anchor(dataFrame,anchorFrame,anchorWeights) %This needs to be model-specific, not all models require 6DoF transformation
-           %Does a 3D rotation/translation of dataFrame to best match the anchorFrame
-           %For a single frame:
-           [R,t,newDataFrame]=getTranslationAndRotation(dataFrame,anchorFrame);
-           params.R=R;
-           params.t=t;
-        end
         function dataFrame=invertAndAnchor(ss,anchorFrame,anchorWeights,distanceWeights,initGuess)
             knownDistances=naiveDistances.stat2DistMatrix(ss);
             distanceWeights=naiveDistances.stat2DistMatrix(distanceWeights);
@@ -328,7 +289,32 @@ classdef naiveDistances < markerModel
             dataFrame(~fixedMarkers,:)=aux;
             end
         end
+    end
+    methods(Static)
+        function [ss,g] = summaryStats(data)
+           D=computeDistanceMatrix(data);
+           ss=naiveDistances.distMatrix2stat(D);
+           if nargout>2
+              g=[]; %TODO
+           end
+        end
+        function this = learn(data,labels,noDisp)
+            if nargin<2
+                labels={};
+            end
+            this=naiveDistances(data,labels);
+            if nargin<3 || isempty(noDisp) || ~noDisp
+                this.seeModel()
+            end
 
+        end
+        function [newDataFrame,params]=anchor(dataFrame,anchorFrame,anchorWeights) %This needs to be model-specific, not all models require 6DoF transformation
+           %Does a 3D rotation/translation of dataFrame to best match the anchorFrame
+           %For a single frame:
+           [R,t,newDataFrame]=getTranslationAndRotation(dataFrame,anchorFrame);
+           params.R=R;
+           params.t=t;
+        end
         function D=stat2DistMatrix(ss)
             %ss is M(M-1)/2 x N
             M=ceil(sqrt(2*size(ss,1)));
