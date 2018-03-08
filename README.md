@@ -5,6 +5,7 @@ TO DO:
 Reconstruct: it doesn't work very well. The same reconstruction on the same frames returns different results each time. Why? Outliers remain even after reconstruction.
 Alos, sometimes a single bad marker will make other tightly coupled markers have low logL, so they are 'loose' in the optimization.
 Generate good default weights for positions, based on marker scoring.
+The function is TOO sensitive to position weights: 1-1.3 works well, although 1.3 starts giving convergence issues, 2-3 is unusable, eventhough I expect this to represent a 2-3mm std of position, meaning that 95% of samples will fall within +-10mm the measured position. Is it possible that there is an extra squaring somewhere that takes this to a 100mm 95% CI?
 
 Reconstruct fast:
 Perhaps reconstruct one missing marker at a time, assuming the other 'bad' ones as fixed? (key feature here is that because weights are binary, we either trust markers or we don't, there is no gray area).

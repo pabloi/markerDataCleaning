@@ -44,7 +44,7 @@ mm = naiveDistances.learn(d,labels);
 idx=1:500; %Some frames
 dd=d(:,:,idx);
 %Trust in measurments:
-posSTD=1.3*ones(size(dd,1),size(dd,3));
+posSTD=1.1*ones(size(dd,1),size(dd,3)); %Needs to be below sqrt(2) to be trusted in reconstructFAST
 
 %Removing NaN:
 dd(isnan(dd))=0;
@@ -59,6 +59,10 @@ toc
 tic
 newDD1=mm.reconstructFast(dd,posSTD);
 toc
+%%
+assessReconstruction(newDD1, newDD, mm)
+%%
+assessReconstruction(dd, newDD, mm)
 %% New outliers:
 outAfter=mm.outlierDetect(newDD);
 sum(outAfter(:))
@@ -84,3 +88,5 @@ hold on
 plot3(newDD(:,1,idx),newDD(:,2,idx),newDD(:,3,idx),'kx','MarkerSize',8,'LineWidth',4)
 plot3(newDD1(:,1,idx),newDD1(:,2,idx),newDD1(:,3,idx),'r*','MarkerSize',6,'LineWidth',4)
 
+%%
+assessReconstruction(newDD1, newDD, mm)
