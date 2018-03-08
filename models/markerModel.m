@@ -180,6 +180,22 @@ classdef markerModel
 
             end
         end
+        function labels = labelData(this,dataFrames)
+            error('Unimplemented')
+            %Heuristic: assign random labels, then try pair-wise
+            %permutations and see if they improve likelihood of data.
+            %Keep permutations that do, and reset pairwise list to try
+            %End when all pairwise permutations have been tried and none
+            %improves reconstruction
+            %Perhaps repeat a couple times and select best of final results
+        end
+        function sortedData=sortMarkerOrder(model,data,labels)
+            % Convenience function that re-sorts the rows of data, so that
+            % they match the order of the labels in this model.
+            error('Unimplemented')
+            %To do: compare lists of labels and model.markerLabels, find
+            %sorting, and sort the data. Use compareLists()
+        end
     end
     methods(Hidden)
         function markerScores = scoreMarkersRanked(this,data,N)
@@ -199,6 +215,50 @@ classdef markerModel
             else
                 markerScores=squeeze(min(i.*reshape(L,1,P,Nn),[],2));
            end
+        end
+        function [dataFrame,permutationList]=tryPermutations(model,dataFrame,listToPermute)
+            %Tries to permute labels on single dataFrame to maximize
+            %likelihood of data.
+            permutationList=zeros(0,2);
+            %Benchmark to compare:
+            L0=model.loglikelihood(dataFrame);
+            nBad=sum(L0<-5^2/2);
+            %TODO: start with markers associated to bad distances, and then move to a larger set
+            if nargin<3 || isempty(listToPermute)
+                %Run for bad markers.
+                if any(nBad)
+                    listToPermute=find(nBad);
+                    [dataFrame,permutationList]=tryPermutations(model,dataFrame,listToPermute);
+                end
+                %Run for all markers.
+                [dataFrame,permutationList2]=tryPermutations(model,dataFrame,1:size(dataFrame,1));
+                permutationList=[permutationList;permutationList2];
+            else
+                while nBad>0 %If no log-L is too bad, do nothing, save time.
+                    %Permutations to consider:
+                    listOfPermutations=nchoosek(listToPermute,2); %Pairwise permutations
+                    N=size(listOfPermutations,1);
+                    count=0;
+                    while count<N
+                       count=count+1;
+                       newDataFrame=dataFrame;
+                       newDataFrame(fliplr(listOfPermutations(count,:)),:)=dataFrame(listOfPermutations(count,:),:);
+                       L=model.loglikelihood(newDataFrame);
+                       if sum(L)>sum(L0) %Found permutation that improves things
+                           break %Exiting inner while-loop
+                       end
+                    end
+                    if sum(L)<=sum(L0) %Checking if while exited without making any improvements
+                        return %Inner loop finished without progress
+                    else %Improvement was made!
+                        %Update benchmark:
+                        dataFrame=newDataFrame;
+                        L0=L;
+                        nBad=sum(L0<-5^2/2);
+                        permutationList(end+1,:)=listOfPermutations(count,:); %Adding permutation to list
+                    end
+                end
+            end
         end
     end
     methods(Static)

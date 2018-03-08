@@ -55,6 +55,10 @@ classdef naiveDistances < markerModel
                 end
         end
         function [badFlag,mirrorOutliers,outOfBoundsOutlier] = validateMarkerModel(this,verbose)
+            %This function compares a trained model vs. a reference model
+            %of the class, and returns a potential list of markers with
+            %issues. It is meant to be used as a diagnostics tool to detect
+            %bad models (possibly caused by bad training data).
             outOfBoundsOutlier=false(size(this.trainingData,1),1);
             if nargin<2 || isempty(verbose)
                 verbose=true;
@@ -129,14 +133,18 @@ classdef naiveDistances < markerModel
         function [permutationList,newModel] = permuteModelLabels(model)
             %Checks if a model is invalid, and if it is, tries to find label
             %permutations that would make it valid.
+            %TO DO: can this be achieved by just finding permutations of
+            %the training data of the model against the reference model? If
+            %so we can avoid duplicating code.
+            %See also: naiveDistances.validateMarkerModel markerModel.validateMarkerModel
 
             [~,mirrorOutliers,outOfBoundsOutlier] = model.validateMarkerModel(false);
             nBad=sum(mirrorOutliers | outOfBoundsOutlier);
             nBinit=nBad;
             newModel=model;
-            if nBad>10 %Too many permutations, search is not feasible
-                error('Too many possible permutations, search is not feasible')
-            end
+            %if nBad>10 %Too many permutations, search is not feasible
+            %    error('Too many possible permutations, search is not feasible')
+            %end
 
             %First try with permutations of markers marked as bad:
             permutationList=nan(0,2);
@@ -169,6 +177,8 @@ classdef naiveDistances < markerModel
             end
         end
         function newModel=applyPermutation(model,permutation)
+            %TODO: applying a permutation should require to only permute labels.
+            % Also, if this function is needed, should be in markerModel superclass
             newModel=model;
             %First, permute the training data:
             for i=1:size(permutation,1)
@@ -227,6 +237,10 @@ classdef naiveDistances < markerModel
     end
     methods(Hidden)
         function [model,permutationList,nBad]=tryPermutations(model,listToPermute)
+            %TODO: test this agains markerModel.tryPermutations() and see
+            %which one performs best & fastest. If not this one, deprecate.
+
+            %Overload!
             permutationList=zeros(0,2);
             %Benchmark to compare:
             [~,mirrorOutliers,outOfBoundsOutlier] = validateMarkerModel(model,false);
