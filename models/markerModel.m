@@ -130,6 +130,15 @@ classdef markerModel
 %                 axis tight
 %                 set(gca,'XTickLabels',l,'XTickLabelRotation',90,'XTick',1:size(s,1),'YTickLabels',l,'YTick',1:size(s,1))
         end
+        function newThis=dropMarkers(this,markerList,keepMarkersFlag)
+            %Drops the markers in markerList from the model, if present.
+            %If keepMarkersFlag is set, then we only keep the markers in
+            %markerList and drop the rest.
+            if nargin<3 || isempty(keepMarkersFlag)
+                keepMarkersFlag=false; 
+            end
+            error('Unimplemented')
+        end
         function [outlierMarkers,markerScores] = outlierDetectFast(this,data,threshold)
             if nargin<3
                 threshold=-5;
@@ -182,7 +191,26 @@ classdef markerModel
         end
         function labels = labelData(this,dataFrames)
             error('Unimplemented')
-            %Heuristic: assign random labels, then try pair-wise
+            %Heuristic 2: (to initialize labeling)
+            M2=size(dataFrames,1); %Markers in data frame
+            M1=this.Nmarkers; %Markers in model (need not be equal)
+            i1=this.indicatrix;
+            i2=this.indicatrix(true,M2);
+            S=this.summaryStats(dataFrames);
+            Nframes=size(dataFrames,3);
+            for i=1:Nframes
+                L=markerModels.normalLogL(S(:,j)',this.statMedian,this.getRobustStd(.94)); %This assumes normal distributions
+                %L should be 
+                P=i1*L/i2'; %TODO: is this inversion correct?
+                error('Unimplemented')
+                %TODO: some heuristic to untangle things. P should be
+                %M1xM2, and I want to get the most likely map of M2 onto
+                %M1, this is a permutation of M2, (idx: M1x1) such that
+                %sum(diag(P(:,idx))) is minimized.
+                %Need to think about what happens if M2< M1 (if larger,
+                %we just dont assign some)
+            end
+            %Heuristic 1: assign random labels, then try pair-wise
             %permutations and see if they improve likelihood of data.
             %Keep permutations that do, and reset pairwise list to try
             %End when all pairwise permutations have been tried and none
@@ -336,7 +364,7 @@ classdef markerModel
                 end
             end
         end
-
+        [means,stds,labels,meanLB,meanUB,stdLB,stdUB,A,b]=getRefData(); %Returns an example, well-calibrated model
     end
 end
 

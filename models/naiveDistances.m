@@ -20,8 +20,10 @@ classdef naiveDistances < markerModel
             logL(isnan(logL))=0;
             g=[];
         end
-        function i = indicatrix(this,fullFlag) %MxP
-            M=this.Nmarkers;
+        function i = indicatrix(this,fullFlag,M) %MxP
+            if nargin<3 || isempty(M)
+                M=this.Nmarkers;
+            end
             ind=triu(true(M),1);
             i=nan(M,M*(M-1)/2);
             for j=1:M
@@ -55,6 +57,10 @@ classdef naiveDistances < markerModel
                 end
         end
         function [badFlag,mirrorOutliers,outOfBoundsOutlier] = validateMarkerModel(this,verbose)
+            %TODO: change this to load getRefData() and use the bounds from
+            %there as the ONLY source of testing. If that works well, move
+            %this function to markerModel(), since it won't have any class
+            %specific information, other than what getRefData() provides
             %This function compares a trained model vs. a reference model
             %of the class, and returns a potential list of markers with
             %issues. It is meant to be used as a diagnostics tool to detect
@@ -136,6 +142,7 @@ classdef naiveDistances < markerModel
             %TO DO: can this be achieved by just finding permutations of
             %the training data of the model against the reference model? If
             %so we can avoid duplicating code.
+            %Iny any case, this can be moved to markerModel()
             %See also: naiveDistances.validateMarkerModel markerModel.validateMarkerModel
 
             [~,mirrorOutliers,outOfBoundsOutlier] = model.validateMarkerModel(false);
@@ -212,17 +219,12 @@ classdef naiveDistances < markerModel
                 %there is nothing to optimize for).
                 %TODO: based on training data, estimate a decent threshold
                 %for the cost function of the reconstruction
-
                 wP=1./dataPriors(:,k).^2;
                 wP(wP>1)=1; %Don't trust any position TOO much, leads to bad numerical properties
-                if ~fastFlag
-                    lastSol=naiveDistances.invertAndAnchor(this.statMean,data(:,:,k),wP,wD,lastSol);
-                else
-                    lastSol=naiveDistances.invertAndAnchorFast(this.statMean,data(:,:,k),wP,wD,lastSol);
-                end
+                lastSol=naiveDistances.invertAndAnchor(this.statMean,data(:,:,k),wP,wD,lastSol,fastFlag);
                 mleData(:,:,k)=lastSol;
             end
-                            %Validate result:
+%Validate result:
 %             logLBefore=this.loglikelihood(data);
 %             outlierBefore=this.outlierDetectFast(data);
 %             logLAfter=this.loglikelihood(mleData);
@@ -271,36 +273,38 @@ classdef naiveDistances < markerModel
                 end
             end
         end
-        function dataFrame=invertAndAnchor(ss,anchorFrame,anchorWeights,distanceWeights,initGuess)
+        function dataFrame=invertAndAnchor(ss,anchorFrame,anchorWeights,distanceWeights,initGuess,fastFlag)
             knownDistances=naiveDistances.stat2DistMatrix(ss);
             distanceWeights=naiveDistances.stat2DistMatrix(distanceWeights);
-            [dataFrame] = getPositionFromDistances_v3(anchorFrame,knownDistances,anchorWeights,distanceWeights,initGuess);
-        end
-        function dataFrame=invertAndAnchorFast(ss,anchorFrame,anchorWeights,distanceWeights,initGuess)
-            %Option 1:
-            %knownDistances=stat2DistMatrix(ss);
-            %[dataFrame] = getPositionFromDistances_v2(anchorFrame,knownDistances,anchorWeights,anchorFrame);
-            %Option 2:
-            knownDistances=naiveDistances.stat2DistMatrix(ss);
-            distanceWeights=naiveDistances.stat2DistMatrix(distanceWeights);
-            %Divide markers in certain and uncertain. Certain markers are
-            %offered as knownPositions and NOT optimized for.
-            %Uncertain markers are optimized for, and have no known positions
-            dataFrame=anchorFrame; 
-            fixedMarkers=anchorWeights>=.5 | isnan(anchorWeights) | anchorWeights==Inf; %Arbitrary threshold
-            if any(~fixedMarkers)
-                anchorFrame=anchorFrame(fixedMarkers,:);
-                knownDistances=knownDistances(fixedMarkers,~fixedMarkers);
-                distanceWeights=distanceWeights(fixedMarkers,~fixedMarkers);
-                anchorWeights=anchorWeights(~fixedMarkers);
-            if ~isempty(initGuess)
-                initGuess=initGuess(~fixedMarkers,:);
+            if nargin<6 || isempty(fastFlag)
+                fastFlag=false;
             end
-            %TODO: 
-            %Do the optimization one marker at a time. May be slower, but better conditioned.
-            %After optimizing: check that the result is decent (no outlier markers remain)
-            [aux] = getPositionFromDistances_v3(anchorFrame,knownDistances,zeros(size(anchorWeights)),distanceWeights,initGuess);
-            dataFrame(~fixedMarkers,:)=aux;
+            if ~fastFlag
+                [dataFrame] = getPositionFromDistances_v3(anchorFrame,knownDistances,anchorWeights,distanceWeights,initGuess);
+            else
+                %Option 1:
+                %knownDistances=stat2DistMatrix(ss);
+                %[dataFrame] = getPositionFromDistances_v2(anchorFrame,knownDistances,anchorWeights,anchorFrame);
+                %Option 2:
+                %Divide markers in certain and uncertain. Certain markers are
+                %offered as knownPositions and NOT optimized for.
+                %Uncertain markers are optimized for, and have no known positions
+                dataFrame=anchorFrame; 
+                fixedMarkers=anchorWeights>=.5 | isnan(anchorWeights) | anchorWeights==Inf; %Arbitrary threshold
+                if any(~fixedMarkers)
+                    anchorFrame=anchorFrame(fixedMarkers,:);
+                    knownDistances=knownDistances(fixedMarkers,~fixedMarkers);
+                    distanceWeights=distanceWeights(fixedMarkers,~fixedMarkers);
+                    anchorWeights=anchorWeights(~fixedMarkers);
+                    if ~isempty(initGuess)
+                        initGuess=initGuess(~fixedMarkers,:);
+                    end
+                    %TODO: 
+                    %Do the optimization one marker at a time. May be slower, but better conditioned.
+                    %After optimizing: check that the result is decent (no outlier markers remain)
+                    [aux] = getPositionFromDistances_v3(anchorFrame,knownDistances,zeros(size(anchorWeights)),distanceWeights,initGuess);
+                    dataFrame(~fixedMarkers,:)=aux;
+                end
             end
         end
     end
@@ -352,12 +356,17 @@ classdef naiveDistances < markerModel
             xl='markerLabels';
            yl='markerLabels';
         end
-    end
-    methods(Static,Hidden)
-        function [m,s,l]=getRefData()
-            load ./data/refData.mat
-            m=naiveDistances.stat2DistMatrix(m);
-            s=naiveDistances.stat2DistMatrix(s);
+        function [means,stds,labels,meanLB,meanUB,stdLB,stdUB,A,b]=getRefData()
+            [means,stds,markerLabels,lowerBound,upperBound]=load('./data/refData.mat');
+            means=naiveDistances.stat2DistMatrix(means);
+            stds=naiveDistances.stat2DistMatrix(stds);
+            labels=markerLabels;
+            meanLB=lowerBound;
+            meanUB=upperBound;
+            stdLB=zeros(size(stds));
+            stdUB=Inf*ones(size(stds));
+            A=zeros(0,size(means,2));
+            b=zeros(0,1);
         end
     end
 end
