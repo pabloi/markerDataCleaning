@@ -2,6 +2,8 @@
 
 TO DO:
 
+naiveDistances
+--------------
 Reconstruct: it doesn't work very well. The same reconstruction on the same frames returns different results each time. Why? Outliers remain even after reconstruction.
 Alos, sometimes a single bad marker will make other tightly coupled markers have low logL, so they are 'loose' in the optimization.
 Generate good default weights for positions, based on marker scoring.
@@ -11,6 +13,12 @@ Reconstruct fast:
 Perhaps reconstruct one missing marker at a time, assuming the other 'bad' ones as fixed? (key feature here is that because weights are binary, we either trust markers or we don't, there is no gray area).
 Generate good default trusted/not-trusted classification.
 
+Go over all permute functions and move the applicable ones to markerModel() to avoid code duplication. 
+Deprecate naiveDistances.tryPermutations() if possible. 
+Check if permuteModelLabels() can be done through tryPermutations() of training data onto reference model alone [unclear if this necessarily will lead to the best permutation according to validateMarkerModel()]
+
+All
+-------------
 Incorporate Kalman onto reconstruct:
 The idea is that for each frame:
 1) We do a Kalman-like integration of our knowledge of the previous frame with the measurements in this frame. We obtain a best position estimate and its uncertainty. This requires training a dynamical model.

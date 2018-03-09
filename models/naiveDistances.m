@@ -238,41 +238,41 @@ classdef naiveDistances < markerModel
         end
     end
     methods(Hidden)
-        function [model,permutationList,nBad]=tryPermutations(model,listToPermute)
-            %TODO: test this agains markerModel.tryPermutations() and see
-            %which one performs best & fastest. If not this one, deprecate.
-
-            %Overload!
-            permutationList=zeros(0,2);
-            %Benchmark to compare:
-            [~,mirrorOutliers,outOfBoundsOutlier] = validateMarkerModel(model,false);
-            nBad=sum(mirrorOutliers | outOfBoundsOutlier);
-
-            while nBad>0
-                %Permutations to consider:
-                listOfPermutations=nchoosek(listToPermute,2);
-                N=size(listOfPermutations,1);
-                count=0;
-                while count<N
-                   count=count+1;
-                   modelAux=applyPermutation(model,listOfPermutations(count,:)); %Permute
-                   [~,newMO,newOBO] = validateMarkerModel(modelAux,false);
-                   newNB=sum(newMO | newOBO);
-                   if newNB<nBad %Found permutation that improves things
-                       break
-                   end
-                end
-                if newNB>=nBad %Checking if while exited without making any improvements
-                    return
-                else %Improvement was made!
-                    %New benchmark:
-                    model=modelAux;
-                    [~,mirrorOutliers,outOfBoundsOutlier] = validateMarkerModel(model,false);
-                    nBad=sum(mirrorOutliers | outOfBoundsOutlier);
-                    permutationList=[permutationList;listOfPermutations(count,:)]; %Adding permutation to list
-                end
-            end
-        end
+%         function [model,permutationList,nBad]=tryPermutations(model,listToPermute)
+%             %TODO: test this agains markerModel.tryPermutations() and see
+%             %which one performs best & fastest. If not this one, deprecate.
+% 
+%             %Overload!
+%             permutationList=zeros(0,2);
+%             %Benchmark to compare:
+%             [~,mirrorOutliers,outOfBoundsOutlier] = validateMarkerModel(model,false);
+%             nBad=sum(mirrorOutliers | outOfBoundsOutlier);
+% 
+%             while nBad>0
+%                 %Permutations to consider:
+%                 listOfPermutations=nchoosek(listToPermute,2);
+%                 N=size(listOfPermutations,1);
+%                 count=0;
+%                 while count<N
+%                    count=count+1;
+%                    modelAux=applyPermutation(model,listOfPermutations(count,:)); %Permute
+%                    [~,newMO,newOBO] = validateMarkerModel(modelAux,false);
+%                    newNB=sum(newMO | newOBO);
+%                    if newNB<nBad %Found permutation that improves things
+%                        break
+%                    end
+%                 end
+%                 if newNB>=nBad %Checking if while exited without making any improvements
+%                     return
+%                 else %Improvement was made!
+%                     %New benchmark:
+%                     model=modelAux;
+%                     [~,mirrorOutliers,outOfBoundsOutlier] = validateMarkerModel(model,false);
+%                     nBad=sum(mirrorOutliers | outOfBoundsOutlier);
+%                     permutationList=[permutationList;listOfPermutations(count,:)]; %Adding permutation to list
+%                 end
+%             end
+%         end
         function dataFrame=invertAndAnchor(ss,anchorFrame,anchorWeights,distanceWeights,initGuess,fastFlag)
             knownDistances=naiveDistances.stat2DistMatrix(ss);
             distanceWeights=naiveDistances.stat2DistMatrix(distanceWeights);

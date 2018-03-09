@@ -1,0 +1,1 @@
+%Test if markerModels.validate() is equivalent to naiveDistances.validate()

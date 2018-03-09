@@ -61,6 +61,10 @@ classdef markerModel
             sortedSTD=sort(SS); %Ascending order, along columns
             badFlag=badFlag | any(sortedSTD(2,:)>15); %Marking as bad if second tightest std of constraints of any marker are above 15mm
         end
+        function newThis = fixLabels(this)
+        %This function tries to permute labels in a model so the model
+        %would pass, or at least do better, at validate()
+        end
 
         %Convenience functions:
         function s = getRobustStd(this,CI)
@@ -211,25 +215,49 @@ classdef markerModel
 
             end
         end
-        function labels = labelData(this,dataFrames)
-            error('Unimplemented')
-            %Heuristic 2: (to initialize labeling)
+        function [labels1,labels2] = labelData(this,dataFrames)
+            error('This function doesnt work yet.')
             M2=size(dataFrames,1); %Markers in data frame
             M1=this.Nmarkers; %Markers in model (need not be equal)
+            if M1~=M2
+                error('Option to have different number of markers is not yet implemented.')
+            end
+            Nframes=size(dataFrames,3);
+            if Nframes~=1
+                error('Multiple frames not-yet supported')
+            end
+            %Heuristic 2: (to initialize labeling)
             i1=this.indicatrix;
             i2=this.indicatrix(true,M2);
+            i2=i2(:,this.activeStats);
             S=this.summaryStats(dataFrames);
-            Nframes=size(dataFrames,3);
+            S=S(this.activeStats,:);
+            mu=this.statMedian(this.activeStats);
+            sigma=this.getRobustStd(.94);
+            sigma=sigma(this.activeStats);
             for i=1:Nframes
-                L=markerModels.normalLogL(S(:,j)',this.statMedian,this.getRobustStd(.94)); %This assumes normal distributions
+                L=markerModel.normalLogL(S(:,i),mu',sigma'); %This assumes normal distributions
+                L((isnan(L)))=min(L(:));
                 %L should be 
-                P=i1*L/i2'; %TODO: is this inversion correct?
-                error('Unimplemented')
-                %TODO: some heuristic to untangle things. P should be
-                %M1xM2, and I want to get the most likely map of M2 onto
+                P=i1*L/i2; %M1xM2 %TODO: is this inversion correct?
+                P=i1*L*i2';
+                %Heuristic: get most likely pair, one at a time:
+                counter=0;
+                labels1=cell(M2,1);
+                map=nan(M2,1);
+                while counter<M2
+                    counter=counter+1;
+                    [ii,jj]=find(P==max(P(:)));
+                    map(jj)=ii;
+                    P(ii,:)=-Inf;
+                    P(:,jj)=-Inf;
+                end
+                labels1=this.markerLabels(map);
+                    
+                %TODO:  I want to get the most likely map of M2 onto
                 %M1, this is a permutation of M2, (idx: M1x1) such that
-                %sum(diag(P(:,idx))) is minimized.
-                %Need to think about what happens if M2< M1 (if larger,
+                %sum(diag(P(:,idx))) is maximized.
+                %TODO: Need to think about what happens if M2< M1 (if larger,
                 %we just dont assign some)
             end
             %Heuristic 1: assign random labels, then try pair-wise
@@ -238,6 +266,13 @@ classdef markerModel
             %End when all pairwise permutations have been tried and none
             %improves reconstruction
             %Perhaps repeat a couple times and select best of final results
+            randInit=randperm(M1);
+            for i=1:Nframes
+                [newFrame,permList]=this.tryPermutations(dataFrames(randInit,:,i));
+            end
+            labels2=this.markerLabels(randInit);
+            labels2=markerModel.applyPermutationList(labels2,permList);
+            
         end
         function sortedData=sortMarkerOrder(model,data,labels)
             % Convenience function that re-sorts the rows of data, so that
@@ -275,12 +310,13 @@ classdef markerModel
             permutationList=zeros(0,2);
             %Benchmark to compare:
             L0=model.loglikelihood(dataFrame);
-            nBad=sum(L0<-5^2/2);
+            bad=L0<-5^2/2;
+            nBad=sum(model.indicatrix* bad >0);
             %TODO: start with markers associated to bad distances, and then move to a larger set
             if nargin<3 || isempty(listToPermute)
                 %Run for bad markers.
-                if any(nBad)
-                    listToPermute=find(nBad);
+                if nBad>0
+                    listToPermute=find(model.indicatrix* bad >0);
                     [dataFrame,permutationList]=tryPermutations(model,dataFrame,listToPermute);
                 end
                 %Run for all markers.
@@ -316,7 +352,7 @@ classdef markerModel
     end
     methods(Static)
         %To be implemented in subclass:
-        model = learn(data)
+        model = learn(data,labels)
         [ss,g] = summaryStats(data) %Returns PxN summary stats, and P x 3M x N gradient 
         %gradient can be P x 3M if it is the same for all frames, as is the case in linear models       
         [M,xl,yl]=stat2Matrix(stats)
@@ -400,6 +436,17 @@ classdef markerModel
                 end
             end
         end 
+    end
+    methods(Static,Hidden)
+        function data=applyPermutationList(data,permutationList)
+            if size(data,1)==1 %Row vector
+                data=data(:);
+            end
+            %Applies a list of pair-wise permutations along dim 1
+            for i=1:size(permutationList,1)
+                data(permutationList(i,:),:)=data(fliplr(permutationList(i,:)),:);
+            end
+        end
     end
 end
 
