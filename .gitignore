@@ -2,3 +2,5 @@
 *.m~
 
 data/distanceModelReferenceData_bak2\.mat
+
+data/distanceModelReferenceData\.mat

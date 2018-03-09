@@ -6,7 +6,7 @@ classdef naiveDistances < markerModel
         function this = naiveDistances(trainData,labs)
             this=this@markerModel(trainData,labs);
             ss=this.getRobustStd(.94);
-            this.activeStats=ss<15 & ss<(this.statMean/2);
+            this.activeStats=ss<15 & ss<(this.statMean/2); %Why is the second cosntraint here?
         end
         function [logL,g] = loglikelihood(this,data)
             ss=this.summaryStats(data);
@@ -309,6 +309,7 @@ classdef naiveDistances < markerModel
         end
     end
     methods(Static)
+        %Implementing superclass required methods:
         function [ss,g] = summaryStats(data)
            D=computeDistanceMatrix(data);
            ss=naiveDistances.distMatrix2stat(D);
@@ -326,13 +327,22 @@ classdef naiveDistances < markerModel
             end
 
         end
-        function [newDataFrame,params]=anchor(dataFrame,anchorFrame,anchorWeights) %This needs to be model-specific, not all models require 6DoF transformation
-           %Does a 3D rotation/translation of dataFrame to best match the anchorFrame
-           %For a single frame:
-           [R,t,newDataFrame]=getTranslationAndRotation(dataFrame,anchorFrame);
-           params.R=R;
-           params.t=t;
+        function [D,xl,yl]=stat2Matrix(ss)
+            D=triu(naiveDistances.stat2DistMatrix(ss));
+            xl='markerLabels';
+            yl='markerLabels';
         end
+        function [model,meanLB,meanUB,stdLB,stdUB,A,b]=getRefData()
+            [model,lowerBound,upperBound]=load('../data/distanceModelReferenceData.mat');
+            meanLB=naiveDistances.distMatrix2stat(lowerBound);
+            meanUB=naiveDistances.distMatrix2stat(upperBound);
+            stdLB=zeros(size(meanLB));
+            stdUB=Inf*ones(size(meanLB));
+            A=zeros(0,size(meanLB,2));
+            b=zeros(0,1);
+        end
+
+        %Subclass-specific functions:
         function D=stat2DistMatrix(ss)
             %ss is M(M-1)/2 x N
             M=ceil(sqrt(2*size(ss,1)));
@@ -350,23 +360,6 @@ classdef naiveDistances < markerModel
            ss=reshape(D,M^2,N);
            ind=triu(true(M),1);
            ss=ss(ind(:),:); %Keeping only upper half: PxN, with P=M*(M-1)/2
-        end
-        function [D,xl,yl]=stat2Matrix(ss)
-            D=triu(naiveDistances.stat2DistMatrix(ss));
-            xl='markerLabels';
-           yl='markerLabels';
-        end
-        function [means,stds,labels,meanLB,meanUB,stdLB,stdUB,A,b]=getRefData()
-            [means,stds,markerLabels,lowerBound,upperBound]=load('./data/refData.mat');
-            means=naiveDistances.stat2DistMatrix(means);
-            stds=naiveDistances.stat2DistMatrix(stds);
-            labels=markerLabels;
-            meanLB=lowerBound;
-            meanUB=upperBound;
-            stdLB=zeros(size(stds));
-            stdUB=Inf*ones(size(stds));
-            A=zeros(0,size(means,2));
-            b=zeros(0,1);
         end
     end
 end

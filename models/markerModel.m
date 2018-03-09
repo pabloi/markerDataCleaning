@@ -31,10 +31,38 @@ classdef markerModel
         function mu = get.statMedian(this)
             mu=this.statPrctiles(:,51);
         end
+
+        %To be implemented in subclass:
         [logL,g] = loglikelihood(this,data) %Returns PxN likelihood and gradient
         i = indicatrix(this)
         mapData = reconstruct(this,dataPrior,priorConfidence)
-        [badFlag,outlierClass1,outlierClass2] = validateMarkerModel(this,verbose)
+        function [badFlag,outlierClass1,outlierClass2] = validateMarkerModel(this,verbose)
+            if nargin<2 || isempty(verbose)
+                verbose=true;
+            end
+            SS=this.stat2Matrix(this.statStd); %Get stds as matrix indexed by markers
+            %First: get reference data
+            [refModel,meanLB,meanUB,stdLB,stdUB,A,b]=getRefData();
+            %Second: drop non-shared markers from both reference and
+            %current model (that is the only thing that can be compared)
+            sharedMarkerList=this.getSharedMarkerList(refModel);
+            [this,keptIdx]=this.dropMarkers(sharedMarkerList,true);
+            [refModel,keptIdxRef,keptStats]=refModel.dropMarkers(sharedMarkerList,true);
+            %Third: check mean upper and lower bounds are satisfied
+            outlierClass2=this.statMean > meanUB(keptStats) | this.statMean< meanLB(keptStats);
+            %Fourth: check std upper and lower bounds are satisfied
+            outlierClassS=this.statStd > stdUB(keptStats) | this.statStd< stdLB(keptStats);
+            %Fifth: check inequality constraints
+            outlierClass1= A(:,keptStats)*this.statMean > b;
+            %Sixth: check, for the full given model, that each marker has
+            %some (2 or more) tight constraints, otherwise that marker is
+            %not being modeled properly
+            badFlag=any(outlierClass1 | outlierClass2 | outlierClassS);
+            sortedSTD=sort(SS); %Ascending order, along columns
+            badFlag=badFlag | any(sortedSTD(2,:)>15); %Marking as bad if second tightest std of constraints of any marker are above 15mm
+        end
+
+        %Convenience functions:
         function s = getRobustStd(this,CI)
            %Uses the central confidence interval CI to estimate the std of the distribution
            %assuming the central part is normally distributed 
@@ -130,24 +158,18 @@ classdef markerModel
 %                 axis tight
 %                 set(gca,'XTickLabels',l,'XTickLabelRotation',90,'XTick',1:size(s,1),'YTickLabels',l,'YTick',1:size(s,1))
         end
-        function newThis=dropMarkers(this,markerList,keepMarkersFlag)
+        function [newThis,keptIdx,keptStats]=dropMarkers(this,markerList,keepMarkersFlag)
             %Drops the markers in markerList from the model, if present.
             %If keepMarkersFlag is set, then we only keep the markers in
-            %markerList and drop the rest.
+            %markerList and drop the rest. The markers are re-ordered to
+            %match the order in the given list.
+            %keptIdx is such that this.markerLabels(keptIdx)=newThis.markerLabels
+            %And will be equal to markerList if ALL markers in markerList are present
+            %keptStats is such that this.statMean(keptStats)=newThis.statMean
             if nargin<3 || isempty(keepMarkersFlag)
                 keepMarkersFlag=false; 
             end
             error('Unimplemented')
-        end
-        function [outlierMarkers,markerScores] = outlierDetectFast(this,data,threshold)
-            if nargin<3
-                threshold=-5;
-            end
-            %Works well if there is a single outlier per frame, or if two
-            %or more outliers are present but they don't have tight
-            %distances to any other third marker. Otherwise, problematic.
-            markerScores = scoreMarkersFast(this,data);
-            outlierMarkers=markerScores < -(threshold^2)/2;     %Roughly asking if marker was more than X std away from expectation.     
         end
         function [outlierMarkers,markerScores,logL] = outlierDetect(this,data,threshold,fastFlag)
             if nargin<3 || isempty(threshold)
@@ -224,6 +246,9 @@ classdef markerModel
             %To do: compare lists of labels and model.markerLabels, find
             %sorting, and sort the data. Use compareLists()
         end
+        function sharedMarkerList=getSharedMarkerList(model1,model2)
+            error('Unimplemented')
+        end
     end
     methods(Hidden)
         function markerScores = scoreMarkersRanked(this,data,N)
@@ -290,10 +315,14 @@ classdef markerModel
         end
     end
     methods(Static)
+        %To be implemented in subclass:
         model = learn(data)
         [ss,g] = summaryStats(data) %Returns PxN summary stats, and P x 3M x N gradient 
         %gradient can be P x 3M if it is the same for all frames, as is the case in linear models       
         [M,xl,yl]=stat2Matrix(stats)
+        [model,meanLB,meanUB,stdLB,stdUB,A,b]=getRefData(); %Returns an example, well-calibrated model
+        
+        %Convenience functions:
         function lL=normalLogL(values,means,stds)
             %values is PxN, means and stds are Px1
             %Returns PxN likelihood of value under each normal
@@ -304,6 +333,13 @@ classdef markerModel
         end
         function frameScores=marker2frameScoresNaive(markerScores)
             frameScores=nanmean(markerScores,1);
+        end
+        function [newDataFrame,params]=anchor(dataFrame,anchorFrame,anchorWeights)
+           %Convenience function that finds the 3D rotation/translation of dataFrame to best match the anchorFrame
+           %TODO: use weights to do a weighted optimization
+           [R,t,newDataFrame]=getTranslationAndRotation(dataFrame,anchorFrame);
+           params.R=R;
+           params.t=t;
         end
         function [markerScores]=untangleLikelihoods(L,indicatrix)
             A=-indicatrix';
@@ -363,8 +399,7 @@ classdef markerModel
                     outMarkers(:,j)=intlinprog(f,[1:M],[A1;A2],[b1;b2],[],[],lb,ub,opts);
                 end
             end
-        end
-        [means,stds,labels,meanLB,meanUB,stdLB,stdUB,A,b]=getRefData(); %Returns an example, well-calibrated model
+        end 
     end
 end
 
