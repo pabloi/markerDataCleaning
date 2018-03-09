@@ -230,25 +230,28 @@ classdef markerModel
             i1=this.indicatrix;
             i2=this.indicatrix(true,M2);
             i2=i2(:,this.activeStats);
+            dataFrames(isnan(dataFrames))=0; %TODO: what is the smart way to handle this?
             S=this.summaryStats(dataFrames);
             S=S(this.activeStats,:);
             mu=this.statMedian(this.activeStats);
             sigma=this.getRobustStd(.94);
             sigma=sigma(this.activeStats);
             for i=1:Nframes
-                L=markerModel.normalLogL(S(:,i),mu',sigma'); %This assumes normal distributions
-                L((isnan(L)))=min(L(:));
-                %L should be 
-                P=i1*L/i2; %M1xM2 %TODO: is this inversion correct?
-                P=i1*L*i2';
                 %Heuristic: get most likely pair, one at a time:
                 counter=0;
                 labels1=cell(M2,1);
                 map=nan(M2,1);
+                L=markerModel.normalLogL(S(:,i),mu',sigma'); %This assumes normal distributions
+                mL=min(L(:));
+                L((isnan(L)))=mL;
+                P=i1*(1./sqrt(-L))/i2;
+                P=L;
                 while counter<M2
                     counter=counter+1;
-                    [ii,jj]=find(P==max(P(:)));
+                    [ii,jj]=find(P==max(P(:)),1,'first')
                     map(jj)=ii;
+                    %i1(ii,:)=0;
+                    %L(:,i2(jj,:)==1)=-1e6;
                     P(ii,:)=-Inf;
                     P(:,jj)=-Inf;
                 end
@@ -331,7 +334,7 @@ classdef markerModel
                     while count<N
                        count=count+1;
                        newDataFrame=dataFrame;
-                       newDataFrame(fliplr(listOfPermutations(count,:)),:)=dataFrame(listOfPermutations(count,:),:);
+                       newDataFrame=markerModel.applyPermutationList(dataFrame,listOfPermutations(count,:));
                        L=model.loglikelihood(newDataFrame);
                        if sum(L)>sum(L0) %Found permutation that improves things
                            break %Exiting inner while-loop
